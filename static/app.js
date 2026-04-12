@@ -66,6 +66,9 @@
     iconifySearchBtn: $('iconifySearchBtn'),
     iconifyGrid: $('iconifyGrid'),
     iconifyState: $('iconifyState'),
+    historyCard: $('historyCard'),
+    historyList: $('historyList'),
+    clearHistoryBtn: $('clearHistoryBtn'),
   };
   elements.iconModalBackdrop = elements.iconModal ? elements.iconModal.querySelector('[data-close]') : null;
 
@@ -403,8 +406,155 @@
     if (elements.printBtn) elements.printBtn.disabled = (!printerAvailable) || hasError;
   }
 
+  // ── History ──────────────────────────────────────────────────────────────
+
+  const HISTORY_KEY = 'ptouch_history';
+  const HISTORY_MAX = 30;
+
+  function loadHistory() {
+    try { return JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]'); } catch (_) { return []; }
+  }
+
+  function persistHistory(history) {
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
+  }
+
+  function addHistoryEntry(entry) {
+    const history = loadHistory();
+    history.unshift(entry);
+    if (history.length > HISTORY_MAX) history.length = HISTORY_MAX;
+    persistHistory(history);
+  }
+
+  function historyDisplayLabel(entry) {
+    const parts = [];
+    const firstLine = (entry.text || '').split('\n')[0].trim();
+    if (firstLine) parts.push(firstLine);
+    if (entry.icon) {
+      const iconName = entry.icon.split('/').pop().replace(/\.[^.]+$/, '');
+      parts.push(`[${iconName}]`);
+    }
+    if (!parts.length && entry.url) parts.push(entry.url);
+    return parts.join('  ') || '(empty label)';
+  }
+
+  function formatTime(ts) {
+    const diff = Date.now() - ts;
+    const mins = Math.floor(diff / 60000);
+    if (mins < 1) return 'just now';
+    if (mins < 60) return `${mins}m ago`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return `${hrs}h ago`;
+    const d = new Date(ts);
+    return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+  }
+
+  function renderHistory() {
+    const history = loadHistory();
+    if (!elements.historyCard || !elements.historyList) return;
+    if (history.length === 0) {
+      elements.historyCard.hidden = true;
+      return;
+    }
+    elements.historyCard.hidden = false;
+    elements.historyList.innerHTML = '';
+    history.forEach((entry) => {
+      const row = document.createElement('div');
+      row.className = 'history-entry';
+
+      const meta = document.createElement('div');
+      meta.className = 'history-entry__meta';
+
+      const label = document.createElement('div');
+      label.className = 'history-entry__label';
+      label.textContent = historyDisplayLabel(entry);
+
+      const time = document.createElement('div');
+      time.className = 'history-entry__time';
+      time.textContent = formatTime(entry.timestamp);
+
+      meta.appendChild(label);
+      meta.appendChild(time);
+
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'secondary';
+      btn.textContent = 'Reprint';
+      btn.addEventListener('click', () => {
+        btn.disabled = true;
+        btn.textContent = 'Printing…';
+        reprintFromHistory(entry).catch((err) => {
+          btn.disabled = false;
+          btn.textContent = 'Reprint';
+          window.alert(`Reprint failed: ${err instanceof Error ? err.message : err}`);
+        });
+      });
+
+      row.appendChild(meta);
+      row.appendChild(btn);
+      elements.historyList.appendChild(row);
+    });
+  }
+
+  function currentPrintParams() {
+    return {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      timestamp: Date.now(),
+      text: elements.labelText ? elements.labelText.value : '',
+      url: elements.labelUrl ? elements.labelUrl.value : '',
+      font_size: parseInt(elements.fontSize ? elements.fontSize.value : '24', 10) || 24,
+      font: elements.fontSelect ? elements.fontSelect.value : defaultFontKey,
+      border_style: elements.borderSelect ? elements.borderSelect.value : defaultBorderStyle,
+      icon: elements.iconPath ? normalizeIconPath(elements.iconPath.value) : '',
+      icon_size: currentIconSize,
+      qr_size: currentQrSize,
+    };
+  }
+
+  function setPrintingState() {
+    if (elements.statusBadge) {
+      elements.statusBadge.className = 'badge printing';
+      elements.statusBadge.textContent = 'Printing…';
+    }
+    if (elements.printBtn) elements.printBtn.disabled = true;
+    setTimeout(() => fetchStatus().catch(console.error), 5000);
+  }
+
+  async function reprintFromHistory(entry) {
+    if (!printerAvailable || hasError) throw new Error('Printer not ready');
+
+    // Fill form with saved values
+    if (elements.labelText) elements.labelText.value = entry.text || '';
+    if (elements.labelUrl) elements.labelUrl.value = entry.url || '';
+    if (elements.fontSize) elements.fontSize.value = String(entry.font_size || 24);
+    if (elements.fontSelect) elements.fontSelect.value = entry.font || defaultFontKey;
+    if (elements.borderSelect) elements.borderSelect.value = entry.border_style || defaultBorderStyle;
+    currentIconSize = entry.icon_size || iconMinHeight;
+    currentQrSize = entry.qr_size || qrMinSize;
+    if (elements.iconSizeInput) { elements.iconSizeInput.value = String(currentIconSize); updateIconSizeDisplay(); }
+    if (elements.qrSizeInput) { elements.qrSizeInput.value = String(currentQrSize); updateQrSizeDisplay(); }
+    updateIconUi(entry.icon || '', { url: entry.icon ? iconPathToUrl(entry.icon) : null });
+
+    // Regenerate preview then print
+    await doPreview();
+    if (!currentFileId) throw new Error('Preview generation failed');
+
+    const res = await fetch('/api/print', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ file_id: currentFileId }),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.ok) throw new Error(data.error || data.stderr || `HTTP ${res.status}`);
+
+    addHistoryEntry({ ...entry, timestamp: Date.now() });
+    renderHistory();
+    setPrintingState();
+  }
+
   async function doPrint() {
-    if (!currentFileId || (!printerAvailable) || hasError) return;
+    if (!currentFileId || !printerAvailable || hasError) return;
+    const params = currentPrintParams();
     const res = await fetch('/api/print', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -412,7 +562,9 @@
     });
     const data = await res.json();
     if (res.ok && data.ok) {
-      window.alert('Sent to printer.');
+      addHistoryEntry(params);
+      renderHistory();
+      setPrintingState();
     } else {
       window.alert('Print failed: ' + (data.error || data.stderr || data.stdout || 'unknown error'));
     }
@@ -820,7 +972,16 @@
     });
   }
 
+  if (elements.clearHistoryBtn) {
+    elements.clearHistoryBtn.addEventListener('click', () => {
+      persistHistory([]);
+      renderHistory();
+    });
+  }
+
   document.addEventListener('keydown', handleModalKeydown);
+
+  renderHistory();
 
   fetchStatus().catch((err) => {
     console.error('Initial status fetch failed', err);

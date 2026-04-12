@@ -654,6 +654,47 @@
       -webkit-appearance: none;
     }
 
+    .badge.printing {
+      background: rgba(93, 139, 255, 0.16);
+      color: var(--accent-strong);
+      border-color: rgba(93, 139, 255, 0.4);
+    }
+
+    .history-list {
+      display: grid;
+      gap: 8px;
+    }
+
+    .history-entry {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 11px 14px;
+      border-radius: var(--radius-md);
+      background: var(--surface);
+      border: 1px solid rgba(255, 255, 255, 0.07);
+    }
+
+    .history-entry__meta {
+      flex: 1;
+      min-width: 0;
+      display: grid;
+      gap: 3px;
+    }
+
+    .history-entry__label {
+      font-size: 14px;
+      color: var(--ink);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .history-entry__time {
+      font-size: 12px;
+      color: var(--ink-muted);
+    }
+
     @media (max-width: 640px) {
       .app {
         padding: 24px 16px 40px;
@@ -792,6 +833,14 @@
         <div class="preview-frame" id="previewPane">No preview yet. Generate one to see your creation ✨</div>
       </section>
     </main>
+
+    <section class="card" id="historyCard" hidden>
+      <div class="card__header">
+        <h2 class="card__title">Print history</h2>
+        <button type="button" id="clearHistoryBtn" class="secondary">Clear</button>
+      </div>
+      <div class="history-list" id="historyList"></div>
+    </section>
 
     <div class="modal" id="iconModal" aria-hidden="true">
       <div class="modal__backdrop" data-close></div>
