@@ -1,0 +1,4 @@
+flask
+pillow
+qrcode[pil]
+cairosvg  # optional: required for SVG icons to render on labels

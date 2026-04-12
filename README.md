@@ -24,8 +24,10 @@ The app shells out to [`ptouch-print`](https://github.com/philpem/ptouch-print) 
 
 ### Python dependencies
 
+Requires Python 3.9 or later.
+
 ```bash
-pip install flask pillow qrcode[pil] cairosvg
+pip install -r requirements.txt
 ```
 
 `cairosvg` is optional but required for SVG icons to render on labels. Without it, SVG icons are visible in the picker but won't be composited onto the printed label.
@@ -80,6 +82,16 @@ http://<host>:5000/api/homebox/print?URL={url}&TitleText={name}&DescriptionText=
 The endpoint returns a PNG image directly. Homebox handles sending it to the printer. The endpoint works even when the printer is off — it falls back to a 128 px tape height if the printer is unavailable.
 
 Also accepts `POST` with a JSON body using the same field names.
+
+### Font requirements for Homebox labels
+
+The Homebox label renderer uses **Arial Black** and **Verdana Bold** for the title and body text. On Debian/Ubuntu/Raspberry Pi OS these come from the `ttf-mscorefonts-installer` package:
+
+```bash
+sudo apt install ttf-mscorefonts-installer
+```
+
+Without them the renderer falls back to a plain bitmap font, which will look noticeably worse.
 
 ## Code layout
 
