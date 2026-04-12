@@ -18,6 +18,8 @@ import time
 import uuid
 import functools
 import subprocess
+import urllib.request
+import urllib.parse
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
@@ -778,6 +780,93 @@ def api_icons():
         "icons": icons,
         "supports_svg": cairosvg is not None,
     })
+
+
+@app.route('/api/icons/search')
+def api_icons_search():
+    q = request.args.get('q', '').strip().lower()
+    if len(q) < 2:
+        return jsonify({"icons": [], "total": 0})
+
+    results: List[Dict[str, str]] = []
+    for root, dirs, files in os.walk(ICON_DIR_ABS):
+        dirs[:] = sorted(d for d in dirs if not d.startswith('.'))
+        for filename in sorted(files):
+            if filename.startswith('.'):
+                continue
+            ext = os.path.splitext(filename)[1].lower()
+            if ext not in ICON_ALLOWED_EXTS:
+                continue
+            if q not in os.path.splitext(filename)[0].lower():
+                continue
+            full_path = os.path.join(root, filename)
+            rel = os.path.relpath(full_path, ICON_DIR_ABS).replace("\\", "/")
+            results.append({
+                "name": os.path.splitext(filename)[0],
+                "path": rel,
+                "url": url_for('static', filename=f"icons/{rel}"),
+                "ext": ext,
+            })
+            if len(results) >= 120:
+                break
+        if len(results) >= 120:
+            break
+
+    return jsonify({"icons": results, "total": len(results)})
+
+
+_ICONIFY_NAME_RE = re.compile(r'^[a-z0-9][a-z0-9-]*$')
+
+
+@app.route('/api/iconify/search')
+def api_iconify_search():
+    q = request.args.get('q', '').strip()
+    if not q:
+        return jsonify({"icons": [], "total": 0})
+
+    api_url = f"https://api.iconify.design/search?query={urllib.parse.quote(q)}&limit=80"
+    try:
+        req = urllib.request.Request(api_url, headers={"User-Agent": "ptouch-labelmaker/1.0"})
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 502
+
+    icons = []
+    for ref in data.get("icons", []):
+        if ":" not in ref:
+            continue
+        prefix, name = ref.split(":", 1)
+        icons.append({"ref": ref, "prefix": prefix, "name": name})
+
+    return jsonify({"icons": icons, "total": data.get("total", len(icons))})
+
+
+@app.route('/api/iconify/download', methods=['POST'])
+def api_iconify_download():
+    data = request.get_json(force=True)
+    prefix = (data.get("prefix") or "").strip()
+    name = (data.get("name") or "").strip()
+
+    if not _ICONIFY_NAME_RE.match(prefix) or not _ICONIFY_NAME_RE.match(name):
+        return jsonify({"error": "Invalid icon reference"}), 400
+
+    svg_url = f"https://api.iconify.design/{prefix}/{name}.svg"
+    try:
+        req = urllib.request.Request(svg_url, headers={"User-Agent": "ptouch-labelmaker/1.0"})
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            svg_bytes = resp.read()
+    except Exception as exc:
+        return jsonify({"error": f"Failed to fetch icon: {exc}"}), 502
+
+    save_dir = os.path.join(ICON_DIR_ABS, "iconify", prefix)
+    os.makedirs(save_dir, exist_ok=True)
+    save_path = os.path.join(save_dir, f"{name}.svg")
+    with open(save_path, "wb") as fh:
+        fh.write(svg_bytes)
+
+    rel = f"iconify/{prefix}/{name}.svg"
+    return jsonify({"path": rel, "url": url_for("static", filename=f"icons/{rel}")})
 
 
 @app.route('/api/preview', methods=['POST'])

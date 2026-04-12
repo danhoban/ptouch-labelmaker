@@ -594,6 +594,61 @@
       overflow: hidden;
     }
 
+    .modal__tabs {
+      display: flex;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      padding: 0 22px;
+      gap: 2px;
+      flex-shrink: 0;
+    }
+
+    .modal__tab {
+      background: transparent;
+      border: none;
+      border-bottom: 2px solid transparent;
+      border-radius: 0;
+      padding: 12px 18px;
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--ink-muted);
+      box-shadow: none;
+      margin-bottom: -1px;
+    }
+
+    .modal__tab:hover:not(:disabled) {
+      color: var(--ink);
+      background: transparent;
+      transform: none;
+      box-shadow: none;
+    }
+
+    .modal__tab.is-active {
+      color: var(--accent-strong);
+      border-bottom-color: var(--accent-strong);
+    }
+
+    .icon-search {
+      display: flex;
+      gap: 8px;
+    }
+
+    .icon-search input[type="search"] {
+      flex: 1;
+    }
+
+    .iconify-grid {
+      grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+    }
+
+    .iconify-tile__set {
+      font-size: 10px;
+      color: var(--ink-muted);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      max-width: 100%;
+    }
+
     @media (max-width: 640px) {
       .app {
         padding: 24px 16px 40px;
@@ -740,16 +795,39 @@
           <h2 class="modal__title" id="iconModalTitle">Choose icon</h2>
           <button type="button" class="modal__close" id="iconModalClose" aria-label="Close icon picker">×</button>
         </div>
+        <div class="modal__tabs">
+          <button type="button" class="modal__tab is-active" id="tabLocal">Local library</button>
+          <button type="button" class="modal__tab" id="tabIconify">Iconify</button>
+        </div>
         <div class="modal__body">
           {% if not supports_svg %}
           <div class="icon-browser__note">SVG rendering requires CairoSVG to be installed on the server. Icons will still display in the picker, but they may not render on the label until CairoSVG is available.</div>
           {% endif %}
-          <nav class="icon-browser__breadcrumbs" id="iconBreadcrumbs"></nav>
-          <div class="icon-browser">
-            <div class="icon-browser__dirs" id="iconDirList"></div>
-            <div class="icon-browser__grid" id="iconGrid"></div>
+
+          <div id="panelLocal">
+            <div class="icon-search">
+              <input type="search" id="iconSearch" placeholder="Search 2800+ local icons…" autocomplete="off">
+            </div>
+            <div class="icon-browser__grid" id="iconSearchResults" hidden></div>
+            <div class="icon-browser__empty" id="iconSearchEmpty" hidden></div>
+            <div id="iconBrowsePanel">
+              <nav class="icon-browser__breadcrumbs" id="iconBreadcrumbs"></nav>
+              <div class="icon-browser">
+                <div class="icon-browser__dirs" id="iconDirList"></div>
+                <div class="icon-browser__grid" id="iconGrid"></div>
+              </div>
+              <div class="icon-browser__empty" id="iconEmptyState" hidden>Nothing to show here yet.</div>
+            </div>
           </div>
-          <div class="icon-browser__empty" id="iconEmptyState" hidden>Nothing to show here yet.</div>
+
+          <div id="panelIconify" hidden>
+            <div class="icon-search">
+              <input type="search" id="iconifySearch" placeholder="Search Iconify (200,000+ icons)…" autocomplete="off">
+              <button type="button" id="iconifySearchBtn">Search</button>
+            </div>
+            <div class="icon-browser__grid iconify-grid" id="iconifyGrid"></div>
+            <div class="icon-browser__empty" id="iconifyState">Enter a search term above to browse 200,000+ icons from Material, Phosphor, Tabler, Font Awesome and more.</div>
+          </div>
         </div>
       </div>
     </div>

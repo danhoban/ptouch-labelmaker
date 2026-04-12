@@ -54,8 +54,22 @@
     iconEmptyState: $('iconEmptyState'),
     iconSizeInput: $('iconSize'),
     iconSizeValue: $('iconSizeValue'),
+    tabLocal: $('tabLocal'),
+    tabIconify: $('tabIconify'),
+    panelLocal: $('panelLocal'),
+    panelIconify: $('panelIconify'),
+    iconSearch: $('iconSearch'),
+    iconSearchResults: $('iconSearchResults'),
+    iconSearchEmpty: $('iconSearchEmpty'),
+    iconBrowsePanel: $('iconBrowsePanel'),
+    iconifySearch: $('iconifySearch'),
+    iconifySearchBtn: $('iconifySearchBtn'),
+    iconifyGrid: $('iconifyGrid'),
+    iconifyState: $('iconifyState'),
   };
   elements.iconModalBackdrop = elements.iconModal ? elements.iconModal.querySelector('[data-close]') : null;
+
+  let localSearchDebounce = null;
 
   function normalizeIconPath(value) {
     if (!value || value === 'none') return '';
@@ -412,12 +426,162 @@
     return parts.join('/');
   }
 
+  function switchTab(tab) {
+    const isLocal = tab === 'local';
+    if (elements.tabLocal) elements.tabLocal.classList.toggle('is-active', isLocal);
+    if (elements.tabIconify) elements.tabIconify.classList.toggle('is-active', !isLocal);
+    if (elements.panelLocal) elements.panelLocal.hidden = !isLocal;
+    if (elements.panelIconify) elements.panelIconify.hidden = isLocal;
+  }
+
+  async function doLocalSearch(q) {
+    const query = q.trim();
+    const searching = query.length >= 2;
+    if (elements.iconBrowsePanel) elements.iconBrowsePanel.hidden = searching;
+    if (elements.iconSearchResults) {
+      elements.iconSearchResults.hidden = !searching;
+      elements.iconSearchResults.innerHTML = '';
+    }
+    if (elements.iconSearchEmpty) elements.iconSearchEmpty.hidden = true;
+    if (!searching) return;
+
+    if (elements.iconSearchEmpty) {
+      elements.iconSearchEmpty.hidden = false;
+      elements.iconSearchEmpty.textContent = 'Searching…';
+    }
+
+    try {
+      const res = await fetch(`/api/icons/search?q=${encodeURIComponent(query)}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+
+      if (elements.iconSearchEmpty) elements.iconSearchEmpty.hidden = true;
+
+      if (!data.icons || data.icons.length === 0) {
+        if (elements.iconSearchEmpty) {
+          elements.iconSearchEmpty.hidden = false;
+          elements.iconSearchEmpty.textContent = `No icons found matching "${query}".`;
+        }
+        return;
+      }
+
+      if (elements.iconSearchResults) {
+        data.icons.forEach((icon) => {
+          const button = document.createElement('button');
+          button.type = 'button';
+          button.className = 'icon-tile';
+          button.dataset.path = icon.path || '';
+          button.dataset.url = icon.url || '';
+          const img = document.createElement('img');
+          img.src = icon.url || '';
+          img.alt = icon.name || '';
+          const label = document.createElement('span');
+          label.textContent = icon.name || '';
+          button.appendChild(img);
+          button.appendChild(label);
+          elements.iconSearchResults.appendChild(button);
+        });
+        highlightActiveIconTile();
+      }
+    } catch (err) {
+      if (elements.iconSearchEmpty) {
+        elements.iconSearchEmpty.hidden = false;
+        elements.iconSearchEmpty.textContent = `Search failed: ${err instanceof Error ? err.message : err}`;
+      }
+    }
+  }
+
+  function buildIconTile(imgSrc, labelText, subLabelText, extraClass, dataAttrs) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = `icon-tile${extraClass ? ' ' + extraClass : ''}`;
+    Object.entries(dataAttrs || {}).forEach(([k, v]) => { button.dataset[k] = v; });
+    const img = document.createElement('img');
+    img.src = imgSrc || '';
+    img.alt = labelText || '';
+    const label = document.createElement('span');
+    label.textContent = labelText || '';
+    button.appendChild(img);
+    button.appendChild(label);
+    if (subLabelText) {
+      const sub = document.createElement('span');
+      sub.className = 'iconify-tile__set';
+      sub.textContent = subLabelText;
+      button.appendChild(sub);
+    }
+    return button;
+  }
+
+  async function doIconifySearch(q) {
+    const query = q.trim();
+    if (!query) return;
+    if (elements.iconifyGrid) elements.iconifyGrid.innerHTML = '';
+    if (elements.iconifyState) {
+      elements.iconifyState.hidden = false;
+      elements.iconifyState.textContent = 'Searching…';
+    }
+    try {
+      const res = await fetch(`/api/iconify/search?q=${encodeURIComponent(query)}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+
+      if (!data.icons || data.icons.length === 0) {
+        if (elements.iconifyState) {
+          elements.iconifyState.hidden = false;
+          elements.iconifyState.textContent = `No icons found for "${query}".`;
+        }
+        return;
+      }
+
+      if (elements.iconifyState) elements.iconifyState.hidden = true;
+
+      if (elements.iconifyGrid) {
+        data.icons.forEach((icon) => {
+          const previewUrl = `https://api.iconify.design/${icon.prefix}/${icon.name}.svg?color=%23000000`;
+          const tile = buildIconTile(previewUrl, icon.name, icon.prefix, 'iconify-tile', {
+            prefix: icon.prefix,
+            name: icon.name,
+          });
+          elements.iconifyGrid.appendChild(tile);
+        });
+      }
+    } catch (err) {
+      if (elements.iconifyState) {
+        elements.iconifyState.hidden = false;
+        elements.iconifyState.textContent = `Search failed: ${err instanceof Error ? err.message : err}. Check internet connection.`;
+      }
+    }
+  }
+
+  async function downloadAndSelectIconify(prefix, name, tileEl) {
+    try {
+      const res = await fetch('/api/iconify/download', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prefix, name }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+      updateIconUi(data.path, { url: data.url });
+      closeIconModal();
+    } catch (err) {
+      if (tileEl) tileEl.disabled = false;
+      window.alert(`Failed to download icon: ${err instanceof Error ? err.message : err}`);
+    }
+  }
+
   function openIconModal(startPath = '') {
     if (!elements.iconModal) return;
     iconModalIsOpen = true;
     document.body.classList.add('modal-open');
     elements.iconModal.classList.add('is-open');
     elements.iconModal.setAttribute('aria-hidden', 'false');
+    switchTab('local');
+    if (elements.iconSearch) elements.iconSearch.value = '';
+    if (elements.iconSearchResults) { elements.iconSearchResults.innerHTML = ''; elements.iconSearchResults.hidden = true; }
+    if (elements.iconSearchEmpty) elements.iconSearchEmpty.hidden = true;
+    if (elements.iconBrowsePanel) elements.iconBrowsePanel.hidden = false;
     loadIconDirectory(normalizeIconPath(startPath));
   }
 
@@ -443,11 +607,11 @@
   }
 
   function highlightActiveIconTile() {
-    if (!elements.iconGrid) return;
-    const tiles = elements.iconGrid.querySelectorAll('button.icon-tile');
-    tiles.forEach((tile) => {
-      if ((tile.dataset.path || '') === currentIconPath) tile.classList.add('is-active');
-      else tile.classList.remove('is-active');
+    [elements.iconGrid, elements.iconSearchResults].forEach((grid) => {
+      if (!grid) return;
+      grid.querySelectorAll('button.icon-tile').forEach((tile) => {
+        tile.classList.toggle('is-active', (tile.dataset.path || '') === currentIconPath);
+      });
     });
   }
 
@@ -598,6 +762,57 @@
       const button = event.target.closest('button');
       if (!button || button.disabled) return;
       loadIconDirectory(button.dataset.path || '');
+    });
+  }
+
+  if (elements.iconSearchResults) {
+    elements.iconSearchResults.addEventListener('click', (event) => {
+      const button = event.target.closest('button.icon-tile');
+      if (!button) return;
+      updateIconUi(button.dataset.path || '', { url: button.dataset.url || '' });
+      closeIconModal();
+    });
+  }
+
+  if (elements.tabLocal) {
+    elements.tabLocal.addEventListener('click', () => switchTab('local'));
+  }
+
+  if (elements.tabIconify) {
+    elements.tabIconify.addEventListener('click', () => switchTab('iconify'));
+  }
+
+  if (elements.iconSearch) {
+    elements.iconSearch.addEventListener('input', () => {
+      clearTimeout(localSearchDebounce);
+      localSearchDebounce = setTimeout(() => {
+        doLocalSearch(elements.iconSearch.value).catch(console.error);
+      }, 300);
+    });
+  }
+
+  if (elements.iconifySearchBtn) {
+    elements.iconifySearchBtn.addEventListener('click', () => {
+      doIconifySearch(elements.iconifySearch ? elements.iconifySearch.value : '').catch(console.error);
+    });
+  }
+
+  if (elements.iconifySearch) {
+    elements.iconifySearch.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') {
+        doIconifySearch(elements.iconifySearch.value).catch(console.error);
+      }
+    });
+  }
+
+  if (elements.iconifyGrid) {
+    elements.iconifyGrid.addEventListener('click', (event) => {
+      const tile = event.target.closest('button.iconify-tile');
+      if (!tile || tile.disabled) return;
+      tile.disabled = true;
+      const nameSpan = tile.querySelectorAll('span')[0];
+      if (nameSpan) nameSpan.textContent = 'Downloading…';
+      downloadAndSelectIconify(tile.dataset.prefix, tile.dataset.name, tile).catch(console.error);
     });
   }
 
