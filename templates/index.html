@@ -1,0 +1,770 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>P‑Touch Label Maker</title>
+  <link rel="icon" type="image/png" href="{{ url_for('static', filename='favicon.png') }}">
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0b0d10;
+      --bg-alt: #11141a;
+      --card: rgba(22, 26, 33, 0.85);
+      --card-border: rgba(138, 149, 169, 0.06);
+      --surface: rgba(255, 255, 255, 0.04);
+      --ink: #f7f9ff;
+      --ink-muted: #9ca8c3;
+      --accent: #5d8bff;
+      --accent-strong: #86a7ff;
+      --danger: #ff657a;
+      --success: #79f2c0;
+      --radius-lg: 18px;
+      --radius-md: 12px;
+      --shadow-xl: 0 16px 60px rgba(8, 10, 23, 0.65);
+      --shadow-sm: 0 6px 18px rgba(8, 10, 23, 0.45);
+      --grid-gap: 18px;
+      --font-stack: "Inter", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: radial-gradient(circle at top, rgba(94, 132, 255, 0.12), transparent 50%), var(--bg);
+      color: var(--ink);
+      font: 15px/1.55 var(--font-stack);
+      display: flex;
+      justify-content: center;
+    }
+
+    .app {
+      width: min(1080px, 100%);
+      padding: 32px 20px 48px;
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+    }
+
+    .app__header {
+      background: linear-gradient(120deg, rgba(35, 40, 60, 0.9), rgba(20, 24, 32, 0.92));
+      border: 1px solid var(--card-border);
+      border-radius: var(--radius-lg);
+      padding: 28px 28px 24px;
+      box-shadow: var(--shadow-xl);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .app__header::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(circle at 15% 30%, rgba(93, 139, 255, 0.22), transparent 45%);
+      mix-blend-mode: screen;
+      pointer-events: none;
+    }
+
+    .app__title {
+      margin: 0 0 18px;
+      font-size: 28px;
+      letter-spacing: -0.02em;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-weight: 600;
+    }
+
+    .app__title span {
+      font-size: 26px;
+    }
+
+    .status-bar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 16px;
+      align-items: center;
+      position: relative;
+      z-index: 1;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 14px;
+      border-radius: 999px;
+      font-size: 13px;
+      font-weight: 500;
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      color: var(--ink);
+      transition: background 0.2s ease, border-color 0.2s ease;
+    }
+
+    .badge.ok {
+      background: rgba(121, 242, 192, 0.12);
+      color: var(--success);
+      border-color: rgba(121, 242, 192, 0.4);
+    }
+
+    .badge.err {
+      background: rgba(255, 101, 122, 0.14);
+      color: var(--danger);
+      border-color: rgba(255, 101, 122, 0.35);
+    }
+
+    .status-actions {
+      margin-left: auto;
+      display: flex;
+      gap: 10px;
+    }
+
+    button {
+      appearance: none;
+      border: none;
+      border-radius: 999px;
+      padding: 10px 18px;
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--ink);
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      cursor: pointer;
+      transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    button.primary {
+      background: linear-gradient(120deg, rgba(93, 139, 255, 0.9), rgba(123, 161, 255, 0.9));
+      border-color: rgba(136, 167, 255, 0.8);
+      box-shadow: 0 10px 30px rgba(93, 139, 255, 0.35);
+    }
+
+    button:hover:not(:disabled) {
+      transform: translateY(-1px);
+      box-shadow: 0 12px 32px rgba(93, 139, 255, 0.25);
+    }
+
+    button:disabled {
+      cursor: not-allowed;
+      opacity: 0.6;
+      box-shadow: none;
+    }
+
+    .status-body {
+      margin-top: 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      color: var(--ink-muted);
+      font-size: 14px;
+      position: relative;
+      z-index: 1;
+    }
+
+    .muted {
+      color: var(--ink-muted);
+    }
+
+    .status-body pre {
+      margin: 0;
+      padding: 14px;
+      border-radius: var(--radius-md);
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      color: var(--ink-muted);
+      white-space: pre-wrap;
+      max-height: 200px;
+      overflow: auto;
+      scrollbar-width: thin;
+    }
+
+    details.status-details summary {
+      cursor: pointer;
+      color: var(--ink-muted);
+      font-size: 13px;
+      position: relative;
+      padding-left: 18px;
+    }
+
+    details.status-details summary::before {
+      content: "▸";
+      position: absolute;
+      left: 0;
+      color: var(--accent-strong);
+      transition: transform 0.2s ease;
+    }
+
+    details.status-details[open] summary::before {
+      transform: rotate(90deg);
+    }
+
+    details.status-details {
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: var(--radius-md);
+      padding: 10px 12px;
+    }
+
+    details.status-details:not([open]) pre {
+      display: none;
+    }
+
+    .status-error {
+      display: none;
+      padding: 12px 14px;
+      border-radius: var(--radius-md);
+      border: 1px solid rgba(255, 101, 122, 0.32);
+      background: rgba(255, 101, 122, 0.12);
+      color: var(--danger);
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: var(--grid-gap);
+      align-items: flex-start;
+    }
+
+    .card {
+      background: var(--card);
+      border-radius: var(--radius-lg);
+      border: 1px solid var(--card-border);
+      padding: 24px;
+      box-shadow: var(--shadow-sm);
+      backdrop-filter: blur(12px);
+      display: grid;
+      gap: 18px;
+    }
+
+    .card__header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .card__title {
+      margin: 0;
+      font-size: 18px;
+      font-weight: 600;
+      color: var(--ink);
+      letter-spacing: -0.01em;
+    }
+
+    .field-group {
+      display: grid;
+      gap: 16px;
+    }
+
+    .field {
+      display: grid;
+      gap: 8px;
+    }
+
+    .field label {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--ink-muted);
+    }
+
+    textarea,
+    input[type="text"],
+    input[type="number"],
+    select {
+      width: 100%;
+      padding: 12px 14px;
+      border-radius: var(--radius-md);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      background: var(--surface);
+      color: var(--ink);
+      font: inherit;
+      transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    }
+
+    textarea:focus,
+    input:focus,
+    select:focus {
+      outline: none;
+      border-color: rgba(93, 139, 255, 0.6);
+      box-shadow: 0 0 0 3px rgba(93, 139, 255, 0.18);
+    }
+
+    textarea {
+      resize: vertical;
+      min-height: 132px;
+    }
+
+    .field-inline {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 14px;
+      align-items: end;
+    }
+
+    .icon-picker {
+      display: grid;
+      grid-template-columns: 64px 1fr;
+      gap: 12px;
+      align-items: center;
+    }
+
+    .icon-picker__preview {
+      width: 64px;
+      height: 64px;
+      border-radius: var(--radius-md);
+      border: 1px dashed rgba(255, 255, 255, 0.12);
+      background: rgba(255, 255, 255, 0.04);
+      display: grid;
+      place-items: center;
+      overflow: hidden;
+    }
+
+    .icon-picker__preview img {
+      max-width: 100%;
+      max-height: 100%;
+      display: block;
+      background: white;
+      border-radius: 6px;
+    }
+
+    .icon-picker__placeholder {
+      font-size: 12px;
+      color: var(--ink-muted);
+    }
+
+    .icon-picker__controls {
+      display: grid;
+      gap: 8px;
+    }
+
+    .icon-picker__buttons {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .icon-picker__label {
+      font-size: 13px;
+      color: var(--ink-muted);
+      min-height: 18px;
+    }
+
+    .size-control {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .size-control input[type="range"] {
+      flex: 1;
+    }
+
+    .size-control span {
+      font-size: 13px;
+      color: var(--ink-muted);
+      min-width: 60px;
+      text-align: right;
+    }
+
+    button.secondary {
+      background: rgba(255, 255, 255, 0.06);
+      border-color: rgba(255, 255, 255, 0.16);
+      box-shadow: none;
+    }
+
+    .modal {
+      position: fixed;
+      inset: 0;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 2500;
+    }
+
+    .modal.is-open {
+      display: flex;
+    }
+
+    .modal__backdrop {
+      position: absolute;
+      inset: 0;
+      background: rgba(8, 10, 17, 0.76);
+      backdrop-filter: blur(6px);
+    }
+
+    .modal__dialog {
+      position: relative;
+      width: min(900px, 94vw);
+      max-height: 90vh;
+      background: rgba(20, 24, 32, 0.95);
+      border-radius: var(--radius-lg);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      box-shadow: var(--shadow-xl);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      z-index: 1;
+    }
+
+    .modal__header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 18px 22px 14px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .modal__title {
+      margin: 0;
+      font-size: 18px;
+      font-weight: 600;
+    }
+
+    .modal__close {
+      background: transparent;
+      border: none;
+      color: var(--ink-muted);
+      padding: 6px;
+      font-size: 24px;
+      line-height: 1;
+      box-shadow: none;
+    }
+
+    .modal__close:hover {
+      color: var(--ink);
+      transform: none;
+    }
+
+    .modal__body {
+      padding: 18px 22px 24px;
+      overflow: hidden auto;
+      display: grid;
+      gap: 18px;
+    }
+
+    .icon-browser__note {
+      font-size: 13px;
+      color: var(--danger);
+      background: rgba(255, 101, 122, 0.14);
+      border: 1px solid rgba(255, 101, 122, 0.32);
+      border-radius: var(--radius-md);
+      padding: 10px 12px;
+    }
+
+    .icon-browser {
+      display: grid;
+      grid-template-columns: minmax(160px, 240px) 1fr;
+      gap: 18px;
+      min-height: 320px;
+    }
+
+    .icon-browser__dirs {
+      display: grid;
+      gap: 8px;
+      align-content: start;
+    }
+
+    .icon-browser__grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+      gap: 14px;
+      align-content: start;
+    }
+
+    .icon-browser__breadcrumbs {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      font-size: 13px;
+      color: var(--ink-muted);
+    }
+
+    .icon-browser__breadcrumbs button {
+      background: rgba(255, 255, 255, 0.06);
+      border-color: rgba(255, 255, 255, 0.12);
+      box-shadow: none;
+      padding: 6px 10px;
+      font-size: 12px;
+    }
+
+    .dir-tile {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 10px 12px;
+      border-radius: var(--radius-md);
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      box-shadow: none;
+      font-size: 13px;
+      color: var(--ink);
+    }
+
+    .dir-tile::after {
+      content: "›";
+      font-size: 16px;
+      color: var(--ink-muted);
+    }
+
+    .dir-tile:hover {
+      background: rgba(255, 255, 255, 0.08);
+      transform: none;
+    }
+
+    .icon-tile {
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: var(--radius-md);
+      padding: 12px;
+      display: grid;
+      gap: 8px;
+      justify-items: center;
+      color: var(--ink);
+      font-size: 12px;
+      box-shadow: none;
+    }
+
+    .icon-tile img {
+      width: 72px;
+      height: 72px;
+      object-fit: contain;
+      background: white;
+      border-radius: 8px;
+      padding: 4px;
+    }
+
+    .icon-tile:hover {
+      background: rgba(93, 139, 255, 0.16);
+      border-color: rgba(93, 139, 255, 0.4);
+      transform: none;
+    }
+
+    .icon-tile.is-active {
+      background: rgba(93, 139, 255, 0.22);
+      border-color: rgba(93, 139, 255, 0.55);
+    }
+
+    .icon-browser__empty {
+      font-size: 13px;
+      color: var(--ink-muted);
+      text-align: center;
+      border: 1px dashed rgba(255, 255, 255, 0.12);
+      border-radius: var(--radius-md);
+      padding: 18px;
+    }
+
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-top: 6px;
+    }
+
+    .hint {
+      font-size: 13px;
+      color: var(--ink-muted);
+    }
+
+    .preview-frame {
+      border-radius: var(--radius-md);
+      background: rgba(10, 12, 18, 0.9);
+      border: 1px dashed rgba(255, 255, 255, 0.09);
+      padding: 22px;
+      min-height: 220px;
+      display: grid;
+      place-items: center;
+      color: var(--ink-muted);
+    }
+
+    #previewPane img {
+      max-width: 100%;
+      height: auto;
+      image-rendering: pixelated;
+      background: white;
+      border-radius: 6px;
+    }
+
+    body.modal-open {
+      overflow: hidden;
+    }
+
+    @media (max-width: 640px) {
+      .app {
+        padding: 24px 16px 40px;
+      }
+
+      .app__header {
+        padding: 22px 20px;
+      }
+
+      .app__title {
+        font-size: 24px;
+      }
+
+      .status-actions {
+        width: 100%;
+        justify-content: flex-start;
+      }
+
+      .icon-picker {
+        grid-template-columns: 48px 1fr;
+      }
+
+      .icon-browser {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header class="app__header">
+      <h1 class="app__title"><span>🖨️</span> P‑Touch Label Maker</h1>
+      <div class="status-bar" id="statusBlock">
+        <span class="badge" id="availBadge">Checking printer…</span>
+        <div class="status-actions">
+          <button id="refreshBtn" type="button">Refresh status</button>
+        </div>
+      </div>
+      <div class="status-body">
+        <details class="status-details">
+          <summary>Show printer diagnostics</summary>
+          <pre id="details"></pre>
+        </details>
+        <div id="errorMsg" class="status-error"></div>
+      </div>
+    </header>
+
+    <main class="layout">
+      <section class="card card--inputs">
+        <div class="card__header">
+          <h2 class="card__title">Label Layout</h2>
+        </div>
+        <div class="field-group">
+          <div class="field">
+            <label for="labelText">Label text</label>
+            <textarea id="labelText" rows="6" placeholder="Type your label text…"></textarea>
+          </div>
+          <div class="field">
+            <label for="labelUrl">URL (optional → QR)</label>
+            <input id="labelUrl" type="text" placeholder="https://example.com" />
+          </div>
+        </div>
+
+        <div class="field-group">
+          <div class="field-inline">
+            <div class="field">
+              <label for="fontFamily">Font</label>
+              <select id="fontFamily"{% if not fonts %} disabled{% endif %}>
+                {% for font in fonts %}
+                <option value="{{ font.key }}"{% if font.key == default_font %} selected{% endif %}{% if not font.available %} disabled{% endif %}>
+                  {{ font.label }}{% if not font.available %} (not installed){% endif %}
+                </option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="field">
+              <label for="borderStyle">Border</label>
+              <select id="borderStyle">
+                {% for border in border_styles %}
+                <option value="{{ border.key }}"{% if border.key == default_border %} selected{% endif %}>{{ border.label }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="field">
+              <label>Icon</label>
+              <div class="icon-picker">
+                <div class="icon-picker__preview">
+                  <img id="iconPreview" alt="" {% if not default_icon %}hidden{% endif %} src="{{ url_for('static', filename='icons/' + default_icon) if default_icon else '' }}">
+                  <span class="icon-picker__placeholder" id="iconPreviewPlaceholder"{% if default_icon %} hidden{% endif %}>None</span>
+                </div>
+                <div class="icon-picker__controls">
+                  <input id="iconPath" type="hidden" value="{{ default_icon }}">
+                  <div class="icon-picker__label" id="iconDisplayLabel">{{ default_icon if default_icon else 'No icon selected' }}</div>
+                  <div class="icon-picker__buttons">
+                    <button type="button" id="openIconPicker">Browse…</button>
+                    <button type="button" id="clearIcon" class="secondary">Clear</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="field">
+              <label for="iconSize">Icon size</label>
+              <div class="size-control">
+                <input type="range" id="iconSize" min="{{ icon_min_height }}" max="{{ icon_min_height }}" value="{{ icon_min_height }}">
+                <span id="iconSizeValue">{{ icon_min_height }} px</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="field-inline">
+            <div class="field">
+              <label for="fontSize">Font size</label>
+              <input id="fontSize" type="number" value="24" min="8" max="96">
+            </div>
+            <div class="field">
+              <label for="qrSize">QR size</label>
+              <div class="size-control">
+                <input type="range" id="qrSize" min="{{ qr_min_size }}" max="{{ qr_min_size }}" value="{{ qr_min_size }}">
+                <span id="qrSizeValue">{{ qr_min_size }} px</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="actions">
+          <button id="previewBtn" class="primary" type="button">Generate preview</button>
+          <button id="printBtn" type="button" disabled>Print</button>
+        </div>
+        <div id="hint" class="hint"></div>
+      </section>
+
+      <section class="card card--preview">
+        <div class="card__header">
+          <h2 class="card__title">Preview</h2>
+        </div>
+        <div class="preview-frame" id="previewPane">No preview yet. Generate one to see your creation ✨</div>
+      </section>
+    </main>
+
+    <div class="modal" id="iconModal" aria-hidden="true">
+      <div class="modal__backdrop" data-close></div>
+      <div class="modal__dialog" role="dialog" aria-modal="true" aria-labelledby="iconModalTitle">
+        <div class="modal__header">
+          <h2 class="modal__title" id="iconModalTitle">Choose icon</h2>
+          <button type="button" class="modal__close" id="iconModalClose" aria-label="Close icon picker">×</button>
+        </div>
+        <div class="modal__body">
+          {% if not supports_svg %}
+          <div class="icon-browser__note">SVG rendering requires CairoSVG to be installed on the server. Icons will still display in the picker, but they may not render on the label until CairoSVG is available.</div>
+          {% endif %}
+          <nav class="icon-browser__breadcrumbs" id="iconBreadcrumbs"></nav>
+          <div class="icon-browser">
+            <div class="icon-browser__dirs" id="iconDirList"></div>
+            <div class="icon-browser__grid" id="iconGrid"></div>
+          </div>
+          <div class="icon-browser__empty" id="iconEmptyState" hidden>Nothing to show here yet.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    window.PTOUCH_CONFIG = {
+      defaultFontKey: "{{ default_font }}",
+      defaultBorderStyle: "{{ default_border }}",
+      defaultIcon: "{{ default_icon }}",
+      iconMinHeight: "{{ icon_min_height }}",
+      qrMinSize: "{{ qr_min_size }}",
+      supportsSvg: {{ 'true' if supports_svg else 'false' }}
+    };
+  </script>
+  <script src="{{ url_for('static', filename='app.js') }}" defer></script>
+</body>
+</html>
