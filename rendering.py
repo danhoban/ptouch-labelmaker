@@ -1,0 +1,546 @@
+"""
+Label image rendering: borders, icons, QR codes, and the two label renderers
+(GUI-driven and Homebox webhook-driven).
+"""
+
+import io
+import os
+from typing import Dict, List, Optional, Tuple
+
+from PIL import Image, ImageDraw, ImageFont
+import qrcode
+
+try:
+    import cairosvg  # type: ignore
+except ImportError:
+    cairosvg = None
+
+from fonts import load_font, DEFAULT_FONT_KEY, resolve_font_path
+
+SUPPORTS_SVG = bool(cairosvg)
+
+# ---------------------------------------------------------------------------
+# Border styles
+# ---------------------------------------------------------------------------
+
+BORDER_STYLES: Dict[str, Dict] = {
+    "none":   {"label": "None",        "type": "none"},
+    "thin":   {"label": "Thin line",   "type": "solid",  "width": 2, "margin": 2},
+    "thick":  {"label": "Thick line",  "type": "solid",  "width": 4, "margin": 3},
+    "double": {"label": "Double line", "type": "double", "width": 1, "margin": 2, "gap": 3},
+    "dashed": {"label": "Dashed line", "type": "dashed", "width": 2, "margin": 2, "dash": 6, "space": 4},
+}
+BORDER_DEFAULT = "none"
+
+
+def get_border_options() -> List[Dict]:
+    opts = [
+        {"key": key, "label": meta["label"], "type": meta.get("type", "solid")}
+        for key, meta in BORDER_STYLES.items()
+    ]
+    opts.sort(key=lambda item: (item["key"] != BORDER_DEFAULT, item["label"].lower()))
+    return opts
+
+
+def _apply_solid_border(draw: ImageDraw.ImageDraw, bbox: Tuple[int, int, int, int], width: int):
+    left, top, right, bottom = bbox
+    for offset in range(width):
+        draw.rectangle((left + offset, top + offset, right - offset, bottom - offset), outline=0)
+
+
+def _apply_double_border(draw: ImageDraw.ImageDraw, bbox: Tuple[int, int, int, int], width: int, gap: int):
+    _apply_solid_border(draw, bbox, width)
+    inner = (bbox[0] + gap, bbox[1] + gap, bbox[2] - gap, bbox[3] - gap)
+    if inner[2] > inner[0] and inner[3] > inner[1]:
+        _apply_solid_border(draw, inner, width)
+
+
+def _draw_dashed_line(
+    draw: ImageDraw.ImageDraw,
+    start: Tuple[int, int],
+    end: Tuple[int, int],
+    dash: int,
+    space: int,
+    width: int,
+):
+    x0, y0 = start
+    x1, y1 = end
+    if y0 == y1:  # horizontal
+        length = abs(x1 - x0)
+        direction = 1 if x1 >= x0 else -1
+        for offset in range(0, length + 1, dash + space):
+            seg_end = x0 + direction * min(offset + dash, length)
+            draw.line((x0 + direction * offset, y0, seg_end, y1), fill=0, width=width)
+    else:  # vertical
+        length = abs(y1 - y0)
+        direction = 1 if y1 >= y0 else -1
+        for offset in range(0, length + 1, dash + space):
+            seg_end = y0 + direction * min(offset + dash, length)
+            draw.line((x0, y0 + direction * offset, x1, seg_end), fill=0, width=width)
+
+
+def _apply_dashed_border(
+    draw: ImageDraw.ImageDraw,
+    bbox: Tuple[int, int, int, int],
+    width: int,
+    dash: int,
+    space: int,
+):
+    left, top, right, bottom = bbox
+    _draw_dashed_line(draw, (left, top),   (right, top),    dash, space, width)
+    _draw_dashed_line(draw, (right, top),  (right, bottom), dash, space, width)
+    _draw_dashed_line(draw, (right, bottom), (left, bottom), dash, space, width)
+    _draw_dashed_line(draw, (left, bottom), (left, top),   dash, space, width)
+
+
+def apply_border(img: Image.Image, style_key: str) -> Image.Image:
+    style = BORDER_STYLES.get(style_key, BORDER_STYLES[BORDER_DEFAULT])
+    if style.get("type") == "none":
+        return img
+    draw = ImageDraw.Draw(img)
+    width = max(1, int(style.get("width", 2)))
+    margin = max(1, int(style.get("margin", width)))
+    right = img.width - margin - 1
+    bottom = img.height - margin - 1
+    if right <= margin or bottom <= margin:
+        return img
+    bbox = (margin, margin, right, bottom)
+    typ = style.get("type", "solid")
+    if typ == "solid":
+        _apply_solid_border(draw, bbox, width)
+    elif typ == "double":
+        gap = max(width + 1, int(style.get("gap", width + 2)))
+        _apply_double_border(draw, bbox, width, gap)
+    elif typ == "dashed":
+        dash = max(1, int(style.get("dash", 6)))
+        space = max(1, int(style.get("space", 4)))
+        _apply_dashed_border(draw, bbox, width, dash, space)
+    else:
+        _apply_solid_border(draw, bbox, width)
+    return img
+
+
+# ---------------------------------------------------------------------------
+# Icon resolution and browsing
+# ---------------------------------------------------------------------------
+
+ICON_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static", "icons")
+ICON_ALLOWED_EXTS = {".png", ".svg", ".jpg", ".jpeg", ".bmp", ".gif"}
+ICON_DEFAULT = ""
+ICON_DIR_ABS = os.path.abspath(ICON_DIR)
+os.makedirs(ICON_DIR_ABS, exist_ok=True)
+
+ICON_DEFAULT_RATIO = 0.85
+ICON_MIN_HEIGHT = 16
+ICON_RESAMPLE = Image.NEAREST
+QR_MIN_SIZE = 24
+QR_DEFAULT_RATIO = 0.85
+
+
+def resolve_icon_path(
+    rel_path: Optional[str], allow_directory: bool = False
+) -> Tuple[Optional[str], Optional[str]]:
+    base = ICON_DIR_ABS
+    if not os.path.isdir(base):
+        return None, None
+    raw = (rel_path or "").strip().strip("\\/")
+    target = os.path.normpath(os.path.join(base, raw)) if raw else base
+    if not (target == base or target.startswith(base + os.sep)):
+        return None, None
+    if not os.path.exists(target):
+        return None, None
+    if os.path.isdir(target):
+        if not allow_directory:
+            return None, None
+        rel = os.path.relpath(target, base)
+        return ("" if rel == "." else rel.replace("\\", "/")), target
+    rel = os.path.relpath(target, base).replace("\\", "/")
+    return rel, target
+
+
+def build_icon_breadcrumbs(rel_path: Optional[str]) -> List[Dict[str, str]]:
+    rel = (rel_path or "").strip()
+    crumbs = [{"name": "Icons", "path": ""}]
+    if not rel:
+        return crumbs
+    acc: List[str] = []
+    for part in (p for p in rel.split("/") if p):
+        acc.append(part)
+        crumbs.append({"name": part, "path": "/".join(acc)})
+    return crumbs
+
+
+def compute_default_icon_height(max_height: int, padding: int = 12) -> int:
+    available = max_height - 2 * padding
+    if available <= 0:
+        return ICON_MIN_HEIGHT
+    return min(available, int(max(ICON_MIN_HEIGHT, max_height * ICON_DEFAULT_RATIO)))
+
+
+def compute_default_qr_size(max_height: int, padding: int = 12) -> int:
+    available = max_height - 2 * max(2, padding // 3)
+    if available <= 0:
+        return QR_MIN_SIZE
+    return min(available, int(max(QR_MIN_SIZE, max_height * QR_DEFAULT_RATIO)))
+
+
+def load_icon_image(
+    icon_key: str, max_height: int, target_height: Optional[int] = None
+) -> Optional[Image.Image]:
+    if not icon_key or icon_key in ("none", ICON_DEFAULT):
+        return None
+    _, path = resolve_icon_path(icon_key, allow_directory=False)
+    if not path:
+        return None
+    if target_height is not None and target_height <= 0:
+        return None
+
+    def prepare(icon: Image.Image) -> Image.Image:
+        img = icon.convert("RGBA")
+        background = Image.new("RGBA", img.size, (255, 255, 255, 255))
+        background.alpha_composite(img)
+        img = background.convert("L")
+        target = max(1, min(max_height, target_height)) if target_height else max_height
+        if target and img.height > target:
+            scale = target / img.height
+            new_size = (max(1, int(img.width * scale)), max(1, int(img.height * scale)))
+            img = img.resize(new_size, ICON_RESAMPLE)
+        return img
+
+    try:
+        ext = os.path.splitext(path)[1].lower()
+        if ext == ".svg":
+            if cairosvg is None:
+                return None
+            png_bytes = cairosvg.svg2png(url=path, output_height=max_height or None)
+            with Image.open(io.BytesIO(png_bytes)) as icon:
+                return prepare(icon)
+        with Image.open(path) as icon:
+            return prepare(icon)
+    except (OSError, ValueError, AttributeError, TypeError):
+        return None
+
+
+# ---------------------------------------------------------------------------
+# Shared rendering primitives
+# ---------------------------------------------------------------------------
+
+def measure_text(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.ImageFont):
+    if hasattr(draw, "textbbox"):
+        bbox = draw.textbbox((0, 0), text, font=font)
+        return bbox[2] - bbox[0], bbox[3] - bbox[1]
+    return draw.textsize(text, font=font)  # type: ignore[attr-defined]
+
+
+def make_qr(data: str, box_size: int) -> Image.Image:
+    qr = qrcode.QRCode(
+        version=None,
+        error_correction=qrcode.constants.ERROR_CORRECT_M,
+        box_size=1,
+        border=2,
+    )
+    qr.add_data(data)
+    qr.make(fit=True)
+    img = qr.make_image(fill_color="black", back_color="white").convert("L")
+    scale = box_size / max(img.size)
+    new_size = (max(1, int(img.size[0] * scale)), max(1, int(img.size[1] * scale)))
+    return img.resize(new_size, Image.NEAREST)
+
+
+def clamp_icon_height(requested: Optional[int], max_height: int, padding: int) -> int:
+    available = max_height - 2 * padding
+    if available <= 0:
+        return 0
+    if available <= ICON_MIN_HEIGHT:
+        return available
+    if not requested or requested <= 0:
+        return compute_default_icon_height(max_height, padding)
+    return min(available, max(ICON_MIN_HEIGHT, requested))
+
+
+def clamp_qr_size(requested: Optional[int], max_height: int, padding: int) -> int:
+    available = max_height - 2 * max(2, padding // 3)
+    if available <= 0:
+        return QR_MIN_SIZE
+    if available <= QR_MIN_SIZE:
+        return available
+    if not requested or requested <= 0:
+        return compute_default_qr_size(max_height, padding)
+    return min(available, max(QR_MIN_SIZE, requested))
+
+
+# ---------------------------------------------------------------------------
+# GUI label renderer
+# ---------------------------------------------------------------------------
+
+def render_label_png(
+    text: str,
+    url: Optional[str],
+    max_height: int,
+    font_size: int = 24,
+    qr_size: int = 96,
+    padding: int = 12,
+    line_spacing: int = 4,
+    font_key: str = DEFAULT_FONT_KEY,
+    border_style: str = BORDER_DEFAULT,
+    icon_key: str = ICON_DEFAULT,
+    icon_size: Optional[int] = None,
+) -> Tuple[Image.Image, int]:
+    height = max(24, max_height)
+    qr_actual_size = clamp_qr_size(qr_size, height, padding)
+    qr_img = make_qr(url.strip(), qr_actual_size) if url and url.strip() else None
+
+    desired_icon_height = (
+        clamp_icon_height(icon_size, height, padding)
+        if icon_key and icon_key not in ("", ICON_DEFAULT)
+        else 0
+    )
+    icon_img = (
+        load_icon_image(icon_key, max_height=max(1, height - 2 * padding), target_height=desired_icon_height)
+        if desired_icon_height
+        else None
+    )
+
+    draw_tmp = ImageDraw.Draw(Image.new("L", (1, 1)))
+    font = load_font(font_size, font_key=font_key)
+
+    lines = []
+    for raw_line in (text or "").splitlines() or [""]:
+        line = raw_line.strip("\r")
+        if not line:
+            lines.append("")
+            continue
+        words = line.split(" ")
+        cur = []
+        for w in words:
+            test = (" ".join(cur + [w])).strip()
+            if measure_text(draw_tmp, test, font)[0] > 9999:
+                lines.append(" ".join(cur))
+                cur = [w]
+            else:
+                cur.append(w)
+        lines.append(" ".join(cur))
+
+    def compute_layout(f: ImageFont.ImageFont):
+        widths, heights = [], []
+        for ln in lines:
+            w, h = measure_text(draw_tmp, ln if ln else " ", f)
+            widths.append(w)
+            heights.append(h)
+        return max(widths, default=0), heights, sum(heights) + line_spacing * (len(heights) - 1)
+
+    text_width, line_heights, total_text_height = compute_layout(font)
+    while total_text_height + 2 * padding > height and font_size > 8:
+        font_size -= 1
+        font = load_font(font_size, font_key=font_key)
+        text_width, line_heights, total_text_height = compute_layout(font)
+
+    icon_w = icon_img.width if icon_img is not None else 0
+    qr_w = qr_img.width if qr_img is not None else 0
+
+    width = padding
+    if icon_w:
+        width += icon_w + (padding if qr_w or text_width > 0 else 0)
+    if qr_w:
+        width += qr_w + (padding if text_width > 0 else 0)
+    if text_width > 0:
+        width += text_width
+    width = max(1, width + padding)
+
+    img = Image.new("L", (width, height), color=255)
+    draw = ImageDraw.Draw(img)
+    x = padding
+
+    if icon_img is not None:
+        img.paste(icon_img, (x, (height - icon_img.height) // 2))
+        x += icon_img.width + (padding if qr_img is not None or text_width > 0 else 0)
+
+    if qr_img is not None:
+        img.paste(qr_img, (x, (height - qr_img.height) // 2))
+        x += qr_img.width + (padding if text_width > 0 else 0)
+
+    y = (height - total_text_height) // 2
+    for i, ln in enumerate(lines):
+        draw.text((x, y), ln, font=font, fill=0)
+        y += line_heights[i] + line_spacing
+
+    img = apply_border(img, border_style)
+    return img.convert('1', dither=Image.NONE), font_size
+
+
+# ---------------------------------------------------------------------------
+# Homebox label renderer
+# ---------------------------------------------------------------------------
+# Renders a richer layout with separate title / description / additional-info
+# sections, each in a distinct font size.  Intended for the /api/homebox/print
+# webhook endpoint rather than the interactive GUI.
+
+_HOMEBOX_TITLE_FONT_PATHS = [
+    "/usr/share/fonts/truetype/msttcorefonts/Arial_Black.ttf",
+    "/usr/share/fonts/truetype/msttcorefonts/Verdana_Bold.ttf",
+]
+_HOMEBOX_BODY_FONT_PATHS = [
+    "/usr/share/fonts/truetype/msttcorefonts/Verdana_Bold.ttf",
+    "/usr/share/fonts/truetype/msttcorefonts/Arial.ttf",
+]
+_HOMEBOX_PADDING = 10
+_HOMEBOX_MAX_WIDTH = 500
+_HOMEBOX_TITLE_SIZE = 36
+_HOMEBOX_DESC_SIZE = 22
+_HOMEBOX_INFO_SIZE = 18
+_HOMEBOX_TITLE_BOTTOM_PAD = 20
+_HOMEBOX_DESC_BOTTOM_PAD = 15
+_HOMEBOX_DESC_LINE_GAP = 3
+_HOMEBOX_DESC_MAX_LINES = 2
+
+
+def _load_font_from_paths(paths: List[str], size: int) -> ImageFont.ImageFont:
+    """Try each path in order; fall back to PIL default if none exist."""
+    for p in paths:
+        if os.path.exists(p):
+            try:
+                return ImageFont.truetype(p, size=size)
+            except Exception:
+                pass
+    return ImageFont.load_default()
+
+
+def render_homebox_label(
+    url: str,
+    title: str,
+    description: str,
+    additional_info: str,
+    max_height: int = 128,
+) -> Image.Image:
+    """
+    Render a Homebox-style label: QR code on the left, structured text on the
+    right (bold title, word-wrapped description, smaller additional info line).
+    Returns a 1-bit PIL image ready to send to ptouch-print.
+    """
+    height = max(24, max_height)
+
+    title_font = _load_font_from_paths(_HOMEBOX_TITLE_FONT_PATHS, _HOMEBOX_TITLE_SIZE)
+    desc_font = _load_font_from_paths(_HOMEBOX_BODY_FONT_PATHS, _HOMEBOX_DESC_SIZE)
+    info_font = _load_font_from_paths(_HOMEBOX_BODY_FONT_PATHS, _HOMEBOX_INFO_SIZE)
+
+    # QR code fills the full label height
+    qr = qrcode.QRCode(
+        version=None,
+        error_correction=qrcode.constants.ERROR_CORRECT_M,
+        box_size=10,
+        border=0,
+    )
+    qr.add_data(url)
+    qr.make(fit=True)
+    qr_img = qr.make_image(fill_color="black", back_color="white").convert("L")
+    qr_img = qr_img.resize((height, height), resample=Image.NEAREST)
+
+    # ---- text measurement helpers (closures over a dummy draw surface) ----
+
+    _dummy = Image.new("L", (10, 10), 255)
+    _draw = ImageDraw.Draw(_dummy)
+
+    def _tsize(text: str, font: ImageFont.ImageFont) -> Tuple[int, int]:
+        if not text:
+            return (0, 0)
+        bbox = _draw.textbbox((0, 0), text, font=font)
+        return (bbox[2] - bbox[0], bbox[3] - bbox[1])
+
+    def _clip(text: str, font: ImageFont.ImageFont, max_w: int) -> Tuple[str, int, int]:
+        """Return (clipped_text, width, height), truncating with '…' if needed."""
+        w, h = _tsize(text, font)
+        if w <= max_w:
+            return text, w, h
+        lo, hi, best = 0, len(text), ""
+        while lo <= hi:
+            mid = (lo + hi) // 2
+            cand = text[:mid] + "\u2026"
+            if _tsize(cand, font)[0] <= max_w:
+                best, lo = cand, mid + 1
+            else:
+                hi = mid - 1
+        best = best or "\u2026"
+        w2, h2 = _tsize(best, font)
+        return best, w2, h2
+
+    def _wrap(
+        text: str, font: ImageFont.ImageFont, max_w: int, max_lines: int = 2
+    ) -> Tuple[List[str], int, int]:
+        """Word-wrap *text* into at most *max_lines* lines; truncates with '…'."""
+        if not text:
+            return [], 0, 0
+        words = text.split()
+        lines: List[str] = []
+        cur = ""
+        i = 0
+        while i < len(words) and len(lines) < max_lines:
+            word = words[i]
+            candidate = (cur + " " + word).lstrip() if cur else word
+            if _tsize(candidate, font)[0] <= max_w:
+                cur, i = candidate, i + 1
+            else:
+                if not cur:
+                    # Single word wider than available space — break it character by character
+                    seg = ""
+                    for ch in word:
+                        if _tsize(seg + ch, font)[0] <= max_w:
+                            seg += ch
+                        else:
+                            break
+                    seg = seg or word[0]
+                    lines.append(seg)
+                    rem = word[len(seg):]
+                    if rem:
+                        words[i] = rem
+                    else:
+                        i += 1
+                else:
+                    lines.append(cur)
+                    cur = ""
+        if len(lines) < max_lines and cur:
+            lines.append(cur)
+        # If there are still remaining words, mark the last line with ellipsis
+        if i < len(words) and lines:
+            last, _, _ = _clip(lines[-1] + "\u2026", font, max_w)
+            lines[-1] = last
+
+        max_line_w = max((_tsize(ln, font)[0] for ln in lines), default=0)
+        total_h = sum(_tsize(ln, font)[1] for ln in lines) + _HOMEBOX_DESC_LINE_GAP * (len(lines) - 1)
+        return lines, max_line_w, total_h
+
+    # ---- measure each text section ----
+
+    desc_first_line = description.splitlines()[0] if description else ""
+    has_text = any([title, desc_first_line, additional_info])
+    gap = _HOMEBOX_PADDING if has_text else 0
+    avail_w = max(0, _HOMEBOX_MAX_WIDTH - height - gap)
+
+    title_r,   title_w,  title_h  = _clip(title,          title_font, avail_w) if title          else ("", 0, 0)
+    desc_lines, desc_w,  desc_h   = _wrap(desc_first_line, desc_font,  avail_w)
+    info_r,    info_w,   info_h   = _clip(additional_info, info_font,  avail_w) if additional_info else ("", 0, 0)
+
+    text_w = max(title_w, desc_w, info_w)
+    width = min(height + (gap if text_w > 0 else 0) + text_w, _HOMEBOX_MAX_WIDTH)
+
+    # ---- compose image ----
+
+    img = Image.new("L", (max(1, width), height), 255)
+    d = ImageDraw.Draw(img)
+    img.paste(qr_img, (0, 0))
+
+    tx = height + gap
+    cy = 0
+
+    if title_r:
+        d.text((tx, cy), title_r, font=title_font, fill=0)
+        cy += title_h + _HOMEBOX_TITLE_BOTTOM_PAD
+
+    for idx, ln in enumerate(desc_lines):
+        d.text((tx, cy), ln, font=desc_font, fill=0)
+        cy += _tsize(ln, desc_font)[1]
+        cy += _HOMEBOX_DESC_LINE_GAP if idx < len(desc_lines) - 1 else _HOMEBOX_DESC_BOTTOM_PAD
+
+    if info_r:
+        d.text((tx, cy), info_r, font=info_font, fill=0)
+
+    return img.convert('1', dither=Image.NONE)

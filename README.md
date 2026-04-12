@@ -56,6 +56,44 @@ The **Iconify** tab in the icon picker searches the Iconify API in real time. Cl
 
 Drop any PNG, SVG, JPG, BMP, or GIF into a subdirectory under `static/icons/` and it will appear in the picker immediately.
 
+## Homebox integration
+
+The app exposes a webhook endpoint that [Homebox](https://homebox.software/) can call to automatically print a label for any asset.
+
+```
+GET /api/homebox/print
+```
+
+| Parameter | Required | Description |
+|---|---|---|
+| `URL` | Yes | Encoded into the QR code |
+| `TitleText` | No | Large bold heading |
+| `DescriptionText` | No | Body text (word-wrapped, first line only) |
+| `AdditionalInformation` | No | Small info line at the bottom |
+
+Point your Homebox label-printer webhook at:
+
+```
+http://<host>:5000/api/homebox/print?URL={url}&TitleText={name}&DescriptionText={description}&AdditionalInformation={location}
+```
+
+The endpoint renders the label and sends it to the printer immediately, returning JSON:
+
+```json
+{"ok": true, "returncode": 0, "width": 350, "height": 128}
+```
+
+Also accepts `POST` with a JSON body using the same field names.
+
+## Code layout
+
+| File | Responsibility |
+|---|---|
+| `labelmaker.py` | Flask app and all routes |
+| `printer.py` | Printer communication (`ptouch-print` wrapper, status parsing, error codes) |
+| `fonts.py` | Font discovery, cataloguing, and loading |
+| `rendering.py` | Label image rendering (borders, icons, QR codes, both label renderers) |
+
 ## Configuration
 
 ### Error codes
