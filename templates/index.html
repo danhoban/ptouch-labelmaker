@@ -68,8 +68,18 @@
       pointer-events: none;
     }
 
+    .app__header-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      flex-wrap: wrap;
+      position: relative;
+      z-index: 1;
+    }
+
     .app__title {
-      margin: 0 0 18px;
+      margin: 0;
       font-size: 28px;
       letter-spacing: -0.02em;
       display: flex;
@@ -87,8 +97,6 @@
       flex-wrap: wrap;
       gap: 16px;
       align-items: center;
-      position: relative;
-      z-index: 1;
     }
 
     .badge {
@@ -157,22 +165,11 @@
       box-shadow: none;
     }
 
-    .status-body {
-      margin-top: 18px;
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
-      color: var(--ink-muted);
-      font-size: 14px;
-      position: relative;
-      z-index: 1;
-    }
-
     .muted {
       color: var(--ink-muted);
     }
 
-    .status-body pre {
+    .modal__body pre {
       margin: 0;
       padding: 14px;
       border-radius: var(--radius-md);
@@ -180,40 +177,10 @@
       border: 1px solid rgba(255, 255, 255, 0.06);
       color: var(--ink-muted);
       white-space: pre-wrap;
-      max-height: 200px;
+      max-height: 60vh;
       overflow: auto;
       scrollbar-width: thin;
-    }
-
-    details.status-details summary {
-      cursor: pointer;
-      color: var(--ink-muted);
       font-size: 13px;
-      position: relative;
-      padding-left: 18px;
-    }
-
-    details.status-details summary::before {
-      content: "▸";
-      position: absolute;
-      left: 0;
-      color: var(--accent-strong);
-      transition: transform 0.2s ease;
-    }
-
-    details.status-details[open] summary::before {
-      transform: rotate(90deg);
-    }
-
-    details.status-details {
-      background: rgba(255, 255, 255, 0.04);
-      border: 1px solid rgba(255, 255, 255, 0.06);
-      border-radius: var(--radius-md);
-      padding: 10px 12px;
-    }
-
-    details.status-details:not([open]) pre {
-      display: none;
     }
 
     .status-error {
@@ -316,22 +283,23 @@
     }
 
     .icon-picker__preview {
-      width: 64px;
-      height: 64px;
+      width: 56px;
+      height: 56px;
       border-radius: var(--radius-md);
-      border: 1px dashed rgba(255, 255, 255, 0.12);
-      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.10);
+      background: rgba(255, 255, 255, 0.08);
       display: grid;
       place-items: center;
       overflow: hidden;
+      flex-shrink: 0;
     }
 
     .icon-picker__preview img {
-      max-width: 100%;
-      max-height: 100%;
+      width: 32px;
+      height: 32px;
+      object-fit: contain;
       display: block;
-      background: white;
-      border-radius: 6px;
+      filter: invert(1) opacity(0.7);
     }
 
     .icon-picker__placeholder {
@@ -654,6 +622,17 @@
       -webkit-appearance: none;
     }
 
+    #panelLocal,
+    #panelIconify {
+      display: grid;
+      gap: 14px;
+    }
+
+    #iconBrowsePanel {
+      display: grid;
+      gap: 10px;
+    }
+
     .badge.printing {
       background: rgba(93, 139, 255, 0.16);
       color: var(--accent-strong);
@@ -800,11 +779,22 @@
         padding: 22px 20px;
       }
 
+      .app__header-row {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 12px;
+      }
+
       .app__title {
         font-size: 24px;
       }
 
+      .status-bar {
+        width: 100%;
+      }
+
       .status-actions {
+        margin-left: 0;
         width: 100%;
         justify-content: flex-start;
       }
@@ -822,20 +812,17 @@
 <body>
   <div class="app">
     <header class="app__header">
-      <h1 class="app__title"><span>🖨️</span> P‑Touch Label Maker</h1>
-      <div class="status-bar" id="statusBlock">
-        <span class="badge" id="availBadge">Checking printer…</span>
-        <div class="status-actions">
-          <button id="refreshBtn" type="button">Refresh status</button>
+      <div class="app__header-row">
+        <h1 class="app__title"><span>🖨️</span> P‑Touch Label Maker</h1>
+        <div class="status-bar" id="statusBlock">
+          <span class="badge" id="availBadge">Checking printer…</span>
+          <div class="status-actions">
+            <button id="diagnosticsBtn" type="button" hidden>Diagnostics</button>
+            <button id="refreshBtn" type="button">Refresh status</button>
+          </div>
         </div>
       </div>
-      <div class="status-body">
-        <details class="status-details">
-          <summary>Show printer diagnostics</summary>
-          <pre id="details"></pre>
-        </details>
-        <div id="errorMsg" class="status-error"></div>
-      </div>
+      <div id="errorMsg" class="status-error"></div>
     </header>
 
     <main class="layout">
@@ -849,8 +836,15 @@
             <textarea id="labelText" rows="6" placeholder="Type your label text…"></textarea>
           </div>
           <div class="field">
-            <label for="labelUrl">URL (optional → QR)</label>
+            <label for="labelUrl">URL</label>
             <input id="labelUrl" type="text" placeholder="https://example.com" />
+          </div>
+          <div class="field">
+            <label for="qrSize">QR size</label>
+            <div class="size-control">
+              <input type="range" id="qrSize" min="{{ qr_min_size }}" max="{{ qr_min_size }}" value="{{ qr_min_size }}">
+              <span id="qrSizeValue">{{ qr_min_size }} px</span>
+            </div>
           </div>
         </div>
 
@@ -867,12 +861,8 @@
               </select>
             </div>
             <div class="field">
-              <label for="borderStyle">Border</label>
-              <select id="borderStyle">
-                {% for border in border_styles %}
-                <option value="{{ border.key }}"{% if border.key == default_border %} selected{% endif %}>{{ border.label }}</option>
-                {% endfor %}
-              </select>
+              <label for="fontSize">Font size</label>
+              <input id="fontSize" type="number" value="24" min="8" max="96">
             </div>
             <div class="field">
               <label>Icon</label>
@@ -902,19 +892,16 @@
 
           <div class="field-inline">
             <div class="field">
-              <label for="fontSize">Font size</label>
-              <input id="fontSize" type="number" value="24" min="8" max="96">
+              <label for="borderStyle">Border</label>
+              <select id="borderStyle">
+                {% for border in border_styles %}
+                <option value="{{ border.key }}"{% if border.key == default_border %} selected{% endif %}>{{ border.label }}</option>
+                {% endfor %}
+              </select>
             </div>
             <div class="field">
               <label for="labelWidth">Label width (mm)</label>
               <input id="labelWidth" type="number" min="10" step="1" placeholder="auto">
-            </div>
-            <div class="field">
-              <label for="qrSize">QR size</label>
-              <div class="size-control">
-                <input type="range" id="qrSize" min="{{ qr_min_size }}" max="{{ qr_min_size }}" value="{{ qr_min_size }}">
-                <span id="qrSizeValue">{{ qr_min_size }} px</span>
-              </div>
             </div>
           </div>
         </div>
@@ -930,13 +917,13 @@
         <div class="card__header">
           <h2 class="card__title">Preview</h2>
         </div>
-        <div class="preview-frame" id="previewPane">No preview yet. Generate one to see your creation ✨</div>
+        <div class="preview-frame" id="previewPane">No preview yet. Generate one to see your label.</div>
       </section>
     </main>
 
     <section class="card" id="libraryCard" hidden>
       <div class="card__header">
-        <h2 class="card__title">&#9733; Library</h2>
+        <h2 class="card__title">Library</h2>
       </div>
       <div class="history-list" id="libraryList"></div>
     </section>
@@ -950,6 +937,19 @@
       </div>
       <div class="history-list" id="historyList"></div>
     </section>
+
+    <div class="modal" id="diagnosticsModal" aria-hidden="true">
+      <div class="modal__backdrop" data-close-diag></div>
+      <div class="modal__dialog" role="dialog" aria-modal="true" aria-labelledby="diagnosticsModalTitle" style="width:min(600px,94vw)">
+        <div class="modal__header">
+          <h2 class="modal__title" id="diagnosticsModalTitle">Printer diagnostics</h2>
+          <button type="button" class="modal__close" id="diagnosticsModalClose" aria-label="Close diagnostics">×</button>
+        </div>
+        <div class="modal__body">
+          <pre id="details"></pre>
+        </div>
+      </div>
+    </div>
 
     <div class="modal" id="iconModal" aria-hidden="true">
       <div class="modal__backdrop" data-close></div>

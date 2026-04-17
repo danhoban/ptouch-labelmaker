@@ -72,6 +72,9 @@
     historyList: $('historyList'),
     clearHistoryBtn: $('clearHistoryBtn'),
     labelWidth: $('labelWidth'),
+    diagnosticsBtn: $('diagnosticsBtn'),
+    diagnosticsModal: $('diagnosticsModal'),
+    diagnosticsModalClose: $('diagnosticsModalClose'),
   };
   elements.iconModalBackdrop = elements.iconModal ? elements.iconModal.querySelector('[data-close]') : null;
 
@@ -298,8 +301,7 @@
       if (data.error_code) lines.push(`Error code: ${data.error_code}`);
       const diagnosticsText = (lines.length ? `${lines.join('\n')}\n\n` : '') + (data.raw || '');
       elements.details.textContent = diagnosticsText || 'No diagnostic information available.';
-      const wrapper = elements.details.parentElement;
-      if (wrapper && wrapper.tagName === 'DETAILS') wrapper.style.display = diagnosticsText ? '' : 'none';
+      if (elements.diagnosticsBtn) elements.diagnosticsBtn.hidden = !diagnosticsText;
     }
 
     if (!iconSizeUserSet) {
@@ -413,6 +415,11 @@
     const noticeHtml = notices.length ? `<div class="muted" style="margin-bottom:6px">${notices.join('<br>')}</div>` : '';
     if (elements.previewPane) {
       elements.previewPane.innerHTML = `<div class="muted" style="margin-bottom:6px">${data.width}×${data.height}px preview (1‑bit B/W)</div>${noticeHtml}<img src="${imgUrl}" alt="preview" />`;
+      const previewImg = elements.previewPane.querySelector('img');
+      if (previewImg) {
+        previewImg.addEventListener('mouseenter', () => showHoverCard(previewImg, `/preview/${currentFileId}.png`, Date.now() / 1000));
+        previewImg.addEventListener('mouseleave', hideHoverCard);
+      }
     }
     if (elements.printBtn) elements.printBtn.disabled = (!printerAvailable) || hasError;
   }
@@ -524,45 +531,85 @@
     const actions = document.createElement('div');
     actions.className = 'history-entry__actions';
 
-    // Star / unstar
-    const starBtn = document.createElement('button');
-    starBtn.type = 'button';
-    starBtn.className = `btn-star${entry.starred ? ' is-starred' : ''}`;
-    starBtn.title = entry.starred ? 'Remove from Library' : 'Add to Library';
-    starBtn.textContent = entry.starred ? '★' : '☆';
-    starBtn.addEventListener('click', () => {
-      starBtn.disabled = true;
-      fetch(`/api/history/${entry.id}/star`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ starred: !entry.starred, name: entry.name || null }),
-      }).then(() => renderHistory()).catch(console.error);
-    });
-    actions.appendChild(starBtn);
+    if (entry.starred) {
+      // Library entry: Load, Reprint, Delete
+      const loadBtn = document.createElement('button');
+      loadBtn.type = 'button';
+      loadBtn.className = 'secondary';
+      loadBtn.textContent = 'Load';
+      loadBtn.addEventListener('click', () => loadFromHistory(entry));
+      actions.appendChild(loadBtn);
 
-    // Load settings
-    const loadBtn = document.createElement('button');
-    loadBtn.type = 'button';
-    loadBtn.className = 'secondary';
-    loadBtn.textContent = 'Load';
-    loadBtn.addEventListener('click', () => loadFromHistory(entry));
-    actions.appendChild(loadBtn);
-
-    // Reprint
-    const reprintBtn = document.createElement('button');
-    reprintBtn.type = 'button';
-    reprintBtn.className = 'secondary';
-    reprintBtn.textContent = 'Reprint';
-    reprintBtn.addEventListener('click', () => {
-      reprintBtn.disabled = true;
-      reprintBtn.textContent = 'Printing…';
-      reprintFromHistory(entry).catch((err) => {
-        reprintBtn.disabled = false;
-        reprintBtn.textContent = 'Reprint';
-        window.alert(`Reprint failed: ${err instanceof Error ? err.message : err}`);
+      const reprintBtn = document.createElement('button');
+      reprintBtn.type = 'button';
+      reprintBtn.className = 'secondary';
+      reprintBtn.textContent = 'Reprint';
+      reprintBtn.addEventListener('click', () => {
+        reprintBtn.disabled = true;
+        reprintBtn.textContent = 'Printing…';
+        reprintFromHistory(entry).catch((err) => {
+          reprintBtn.disabled = false;
+          reprintBtn.textContent = 'Reprint';
+          window.alert(`Reprint failed: ${err instanceof Error ? err.message : err}`);
+        });
       });
-    });
-    actions.appendChild(reprintBtn);
+      actions.appendChild(reprintBtn);
+
+      const deleteBtn = document.createElement('button');
+      deleteBtn.type = 'button';
+      deleteBtn.className = 'secondary';
+      deleteBtn.textContent = 'Delete';
+      deleteBtn.addEventListener('click', () => {
+        deleteBtn.disabled = true;
+        fetch(`/api/history/${entry.id}`, { method: 'DELETE' })
+          .then(() => renderHistory())
+          .catch((err) => {
+            deleteBtn.disabled = false;
+            console.error('Delete failed', err);
+          });
+      });
+      actions.appendChild(deleteBtn);
+    } else {
+      // Recent entry: Save, Load, Reprint
+      const saveBtn = document.createElement('button');
+      saveBtn.type = 'button';
+      saveBtn.className = 'secondary';
+      saveBtn.textContent = 'Save';
+      saveBtn.addEventListener('click', () => {
+        saveBtn.disabled = true;
+        fetch(`/api/history/${entry.id}/star`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ starred: true, name: entry.name || null }),
+        }).then(() => renderHistory()).catch((err) => {
+          saveBtn.disabled = false;
+          console.error('Save failed', err);
+        });
+      });
+      actions.appendChild(saveBtn);
+
+      const loadBtn = document.createElement('button');
+      loadBtn.type = 'button';
+      loadBtn.className = 'secondary';
+      loadBtn.textContent = 'Load';
+      loadBtn.addEventListener('click', () => loadFromHistory(entry));
+      actions.appendChild(loadBtn);
+
+      const reprintBtn = document.createElement('button');
+      reprintBtn.type = 'button';
+      reprintBtn.className = 'secondary';
+      reprintBtn.textContent = 'Reprint';
+      reprintBtn.addEventListener('click', () => {
+        reprintBtn.disabled = true;
+        reprintBtn.textContent = 'Printing…';
+        reprintFromHistory(entry).catch((err) => {
+          reprintBtn.disabled = false;
+          reprintBtn.textContent = 'Reprint';
+          window.alert(`Reprint failed: ${err instanceof Error ? err.message : err}`);
+        });
+      });
+      actions.appendChild(reprintBtn);
+    }
 
     row.appendChild(actions);
     return row;
@@ -880,6 +927,24 @@
     elements.iconModal.setAttribute('aria-hidden', 'true');
   }
 
+  let diagnosticsModalIsOpen = false;
+
+  function openDiagnosticsModal() {
+    if (!elements.diagnosticsModal) return;
+    diagnosticsModalIsOpen = true;
+    document.body.classList.add('modal-open');
+    elements.diagnosticsModal.classList.add('is-open');
+    elements.diagnosticsModal.setAttribute('aria-hidden', 'false');
+  }
+
+  function closeDiagnosticsModal() {
+    if (!elements.diagnosticsModal) return;
+    diagnosticsModalIsOpen = false;
+    document.body.classList.remove('modal-open');
+    elements.diagnosticsModal.classList.remove('is-open');
+    elements.diagnosticsModal.setAttribute('aria-hidden', 'true');
+  }
+
   function renderBreadcrumbs(crumbs) {
     if (!elements.iconBreadcrumbs) return;
     elements.iconBreadcrumbs.innerHTML = '';
@@ -975,9 +1040,14 @@
   }
 
   function handleModalKeydown(event) {
-    if (event.key === 'Escape' && iconModalIsOpen) {
-      event.preventDefault();
-      closeIconModal();
+    if (event.key === 'Escape') {
+      if (iconModalIsOpen) {
+        event.preventDefault();
+        closeIconModal();
+      } else if (diagnosticsModalIsOpen) {
+        event.preventDefault();
+        closeDiagnosticsModal();
+      }
     }
   }
 
@@ -985,6 +1055,19 @@
     elements.refreshBtn.addEventListener('click', () => {
       fetchStatus().catch((err) => console.error('Failed to refresh status', err));
     });
+  }
+
+  if (elements.diagnosticsBtn) {
+    elements.diagnosticsBtn.addEventListener('click', openDiagnosticsModal);
+  }
+
+  if (elements.diagnosticsModalClose) {
+    elements.diagnosticsModalClose.addEventListener('click', closeDiagnosticsModal);
+  }
+
+  if (elements.diagnosticsModal) {
+    const backdrop = elements.diagnosticsModal.querySelector('[data-close-diag]');
+    if (backdrop) backdrop.addEventListener('click', closeDiagnosticsModal);
   }
 
   if (elements.previewBtn) {
