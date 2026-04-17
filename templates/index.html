@@ -969,23 +969,6 @@
             </div>
           </div>
 
-          <div class="field">
-            <label>Element order <span class="muted" style="font-weight:400;font-size:12px">— drag to reorder</span></label>
-            <div class="element-order" id="elementOrder">
-              <div class="element-order__pill" draggable="true" data-element="icon">
-                <span class="element-order__handle">⠿</span>
-                <span>Icon</span>
-              </div>
-              <div class="element-order__pill" draggable="true" data-element="qr">
-                <span class="element-order__handle">⠿</span>
-                <span>QR</span>
-              </div>
-              <div class="element-order__pill" draggable="true" data-element="text">
-                <span class="element-order__handle">⠿</span>
-                <span>Text</span>
-              </div>
-            </div>
-          </div>
         </div>
 
         <hr class="form-divider">
@@ -1005,12 +988,28 @@
               <input id="labelWidth" type="number" min="10" step="1" placeholder="auto">
             </div>
           </div>
+          <div class="field">
+            <label>Element order</label>
+            <div class="element-order" id="elementOrder">
+              <div class="element-order__pill" draggable="true" data-element="icon">
+                <span class="element-order__handle">⠿</span>
+                <span>Icon</span>
+              </div>
+              <div class="element-order__pill" draggable="true" data-element="qr">
+                <span class="element-order__handle">⠿</span>
+                <span>QR</span>
+              </div>
+              <div class="element-order__pill" draggable="true" data-element="text">
+                <span class="element-order__handle">⠿</span>
+                <span>Text</span>
+              </div>
+            </div>
+          </div>
         </div>
 
         <div class="actions">
           <button id="previewBtn" class="primary" type="button">Generate preview</button>
           <button id="printBtn" type="button" disabled>Print</button>
-          <button id="updateLibraryBtn" type="button" class="secondary" hidden>Update library label</button>
         </div>
       </section>
 

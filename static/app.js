@@ -75,12 +75,10 @@
     diagnosticsModal: $('diagnosticsModal'),
     diagnosticsModalClose: $('diagnosticsModalClose'),
     elementOrder: $('elementOrder'),
-    updateLibraryBtn: $('updateLibraryBtn'),
   };
   elements.iconModalBackdrop = elements.iconModal ? elements.iconModal.querySelector('[data-close]') : null;
 
   let localSearchDebounce = null;
-  let loadedLibraryEntryId = null;
 
   // ── Element order drag-and-drop ───────────────────────────────────────────
 
@@ -475,7 +473,6 @@
       }
     }
     if (elements.printBtn) elements.printBtn.disabled = (!printerAvailable) || hasError;
-    if (elements.updateLibraryBtn) elements.updateLibraryBtn.hidden = !loadedLibraryEntryId;
   }
 
   // ── History ──────────────────────────────────────────────────────────────
@@ -600,7 +597,31 @@
     }
 
     if (entry.starred) {
-      // Library entry: Delete, Load, Reprint (print rightmost)
+      // Library entry: Save (overwrite), Delete, Load, Reprint
+      const saveBtn = makeHistoryBtn('Save', '/static/icons/solid/pen-to-square.svg');
+      saveBtn.addEventListener('click', async () => {
+        saveBtn.disabled = true;
+        saveBtn.querySelector('.btn-text').textContent = 'Saving…';
+        try {
+          await doPreview();
+          if (!currentFileId) throw new Error('Preview failed');
+          const res = await fetch(`/api/history/${entry.id}/overwrite`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ file_id: currentFileId }),
+          });
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          renderHistory();
+        } catch (err) {
+          console.error('Library overwrite failed', err);
+          window.alert(`Save failed: ${err instanceof Error ? err.message : err}`);
+        } finally {
+          saveBtn.disabled = false;
+          saveBtn.querySelector('.btn-text').textContent = 'Save';
+        }
+      });
+      actions.appendChild(saveBtn);
+
       const deleteBtn = makeHistoryBtn('Delete', '/static/icons/solid/trash.svg');
       deleteBtn.addEventListener('click', () => {
         deleteBtn.disabled = true;
@@ -703,10 +724,8 @@
     if (elements.qrSizeInput) { elements.qrSizeInput.value = String(currentQrSize); updateQrSizeDisplay(); }
     updateIconUi(entry.icon || '', { url: entry.icon ? iconPathToUrl(entry.icon) : null });
     setElementOrder(entry.element_order);
-    loadedLibraryEntryId = entry.starred ? entry.id : null;
     currentFileId = null;
     if (elements.printBtn) elements.printBtn.disabled = !printerAvailable || hasError;
-    if (elements.updateLibraryBtn) elements.updateLibraryBtn.hidden = true;
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
@@ -1139,27 +1158,6 @@
         console.error('Print failed', err);
         window.alert('Print failed due to an unexpected error. See console for details.');
       });
-    });
-  }
-
-  if (elements.updateLibraryBtn) {
-    elements.updateLibraryBtn.addEventListener('click', async () => {
-      if (!loadedLibraryEntryId || !currentFileId) return;
-      elements.updateLibraryBtn.disabled = true;
-      elements.updateLibraryBtn.textContent = 'Saving…';
-      try {
-        await fetch(`/api/history/${loadedLibraryEntryId}/overwrite`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ file_id: currentFileId }),
-        });
-        renderHistory();
-      } catch (err) {
-        console.error('Update library failed', err);
-      } finally {
-        elements.updateLibraryBtn.disabled = false;
-        elements.updateLibraryBtn.textContent = 'Update library label';
-      }
     });
   }
 
