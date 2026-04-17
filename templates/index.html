@@ -131,6 +131,11 @@
       gap: 10px;
     }
 
+    .status-bar .badge {
+      padding: 10px 14px;
+      font-size: 14px;
+    }
+
     button {
       appearance: none;
       border: none;
@@ -275,11 +280,10 @@
       align-items: end;
     }
 
-    .icon-picker {
-      display: grid;
-      grid-template-columns: 64px 1fr;
-      gap: 12px;
+    .icon-picker__row {
+      display: flex;
       align-items: center;
+      gap: 8px;
     }
 
     .icon-picker__preview {
@@ -622,13 +626,13 @@
       -webkit-appearance: none;
     }
 
-    #panelLocal,
-    #panelIconify {
+    #panelLocal:not([hidden]),
+    #panelIconify:not([hidden]) {
       display: grid;
       gap: 14px;
     }
 
-    #iconBrowsePanel {
+    #iconBrowsePanel:not([hidden]) {
       display: grid;
       gap: 10px;
     }
@@ -799,10 +803,6 @@
         justify-content: flex-start;
       }
 
-      .icon-picker {
-        grid-template-columns: 48px 1fr;
-      }
-
       .icon-browser {
         grid-template-columns: 1fr;
       }
@@ -864,29 +864,24 @@
               <label for="fontSize">Font size</label>
               <input id="fontSize" type="number" value="24" min="8" max="96">
             </div>
-            <div class="field">
-              <label>Icon</label>
-              <div class="icon-picker">
-                <div class="icon-picker__preview">
-                  <img id="iconPreview" alt="" {% if not default_icon %}hidden{% endif %} src="{{ url_for('static', filename='icons/' + default_icon) if default_icon else '' }}">
-                  <span class="icon-picker__placeholder" id="iconPreviewPlaceholder"{% if default_icon %} hidden{% endif %}>None</span>
-                </div>
-                <div class="icon-picker__controls">
-                  <input id="iconPath" type="hidden" value="{{ default_icon }}">
-                  <div class="icon-picker__label" id="iconDisplayLabel">{{ default_icon if default_icon else 'No icon selected' }}</div>
-                  <div class="icon-picker__buttons">
-                    <button type="button" id="openIconPicker">Browse…</button>
-                    <button type="button" id="clearIcon" class="secondary">Clear</button>
-                  </div>
-                </div>
+          </div>
+
+          <div class="field">
+            <label>Icon</label>
+            <div class="icon-picker__row">
+              <div class="icon-picker__preview">
+                <img id="iconPreview" alt="" {% if not default_icon %}hidden{% endif %} src="{{ url_for('static', filename='icons/' + default_icon) if default_icon else '' }}">
+                <span id="iconPreviewPlaceholder"{% if default_icon %} hidden{% endif %}></span>
               </div>
+              <input id="iconPath" type="hidden" value="{{ default_icon }}">
+              <button type="button" id="openIconPicker">Browse…</button>
+              <button type="button" id="clearIcon" class="secondary">Clear</button>
             </div>
-            <div class="field">
-              <label for="iconSize">Icon size</label>
-              <div class="size-control">
-                <input type="range" id="iconSize" min="{{ icon_min_height }}" max="{{ icon_min_height }}" value="{{ icon_min_height }}">
-                <span id="iconSizeValue">{{ icon_min_height }} px</span>
-              </div>
+            <div class="icon-picker__label" id="iconDisplayLabel">{{ default_icon if default_icon else 'No icon selected' }}</div>
+            <label for="iconSize" style="margin-top:6px">Icon size</label>
+            <div class="size-control">
+              <input type="range" id="iconSize" min="{{ icon_min_height }}" max="{{ icon_min_height }}" value="{{ icon_min_height }}">
+              <span id="iconSizeValue">{{ icon_min_height }} px</span>
             </div>
           </div>
 
@@ -910,7 +905,6 @@
           <button id="previewBtn" class="primary" type="button">Generate preview</button>
           <button id="printBtn" type="button" disabled>Print</button>
         </div>
-        <div id="hint" class="hint"></div>
       </section>
 
       <section class="card card--preview">
@@ -918,6 +912,7 @@
           <h2 class="card__title">Preview</h2>
         </div>
         <div class="preview-frame" id="previewPane">No preview yet. Generate one to see your label.</div>
+        <div id="hint" class="hint"></div>
       </section>
     </main>
 
