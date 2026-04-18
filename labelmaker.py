@@ -48,7 +48,6 @@ from rendering import (
     clamp_icon_height,
     clamp_qr_size,
     get_border_options,
-    render_homebox_label,
     mm_to_px,
     render_label_png,
     resolve_icon_path,
@@ -81,6 +80,24 @@ HISTORY_MAX_UNSTARRED = 15
 
 _FILE_ID_RE = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')
 _ICONIFY_NAME_RE = re.compile(r'^[a-z0-9][a-z0-9-]*$')
+_TEMPLATE_VAR_RE = re.compile(r'\{\{(\w+)\}\}')
+
+HOMEBOX_TEMPLATE_NAME = "Homebox Template"
+
+# Default Homebox template — placeholders are substituted at render time.
+# Users can edit this entry in the library to customise font, layout, etc.
+_HOMEBOX_DEFAULT_TEMPLATE = {
+    "text": "**{{TitleText}}**\n{{DescriptionText}}\n[-4]{{AdditionalInformation}}",
+    "url": "{{URL}}",
+    "font_size": 24,
+    "font": DEFAULT_FONT_KEY,
+    "border_style": BORDER_DEFAULT,
+    "icon": "",
+    "icon_size": None,
+    "qr_size": 96,
+    "element_order": ["qr", "text"],
+    "label_width_mm": None,
+}
 
 
 # ---------------------------------------------------------------------------
@@ -127,6 +144,75 @@ def _cleanup_label_store() -> None:
     unstarred.sort(key=lambda x: x[1])  # oldest first
     for eid, _ in unstarred[:-HISTORY_MAX_UNSTARRED] if len(unstarred) > HISTORY_MAX_UNSTARRED else []:
         shutil.rmtree(_entry_dir(eid), ignore_errors=True)
+
+def _interpolate(text: str, vars_dict: dict) -> str:
+    """Replace {{KEY}} placeholders with values from vars_dict."""
+    return _TEMPLATE_VAR_RE.sub(lambda m: vars_dict.get(m.group(1), ''), text)
+
+
+def _find_label_by_name(name: str):
+    """Return (entry_id, meta) for the first starred entry with the given name."""
+    try:
+        entry_ids = [
+            d for d in os.listdir(LABEL_STORE_DIR)
+            if _FILE_ID_RE.match(d) and os.path.isdir(_entry_dir(d))
+        ]
+    except OSError:
+        return None, None
+    for eid in entry_ids:
+        meta = _load_meta(eid)
+        if meta and meta.get("starred") and meta.get("name") == name:
+            return eid, meta
+    return None, None
+
+
+def _get_or_create_homebox_template(vars_dict: dict, max_h: int) -> dict:
+    """Return the Homebox Template library entry, creating it on first use."""
+    _, meta = _find_label_by_name(HOMEBOX_TEMPLATE_NAME)
+    if meta is not None:
+        return meta
+
+    entry_id = str(uuid.uuid4())
+
+    # Render a preview using real data (with sensible fallbacks)
+    preview_vars = {
+        "URL":                   vars_dict.get("URL") or "https://homebox.example.com/i/1",
+        "TitleText":             vars_dict.get("TitleText") or "Asset Name",
+        "DescriptionText":       vars_dict.get("DescriptionText") or "Description",
+        "AdditionalInformation": vars_dict.get("AdditionalInformation") or "",
+    }
+    img, _ = render_label_png(
+        text=_interpolate(_HOMEBOX_DEFAULT_TEMPLATE["text"], preview_vars),
+        url=_interpolate(_HOMEBOX_DEFAULT_TEMPLATE["url"], preview_vars) or None,
+        max_height=max_h,
+        font_size=_HOMEBOX_DEFAULT_TEMPLATE["font_size"],
+        font_key=_HOMEBOX_DEFAULT_TEMPLATE["font"],
+        border_style=_HOMEBOX_DEFAULT_TEMPLATE["border_style"],
+        icon_key=_HOMEBOX_DEFAULT_TEMPLATE["icon"],
+        icon_size=_HOMEBOX_DEFAULT_TEMPLATE["icon_size"],
+        qr_size=_HOMEBOX_DEFAULT_TEMPLATE["qr_size"],
+        element_order=_HOMEBOX_DEFAULT_TEMPLATE["element_order"],
+    )
+
+    meta = {
+        "id":             entry_id,
+        "created_at":     time.time(),
+        "starred":        True,
+        "name":           HOMEBOX_TEMPLATE_NAME,
+        **_HOMEBOX_DEFAULT_TEMPLATE,
+        "rendered_width":  img.width,
+        "rendered_height": img.height,
+    }
+
+    tmp_path = os.path.join(STATIC_DIR, f"label_{entry_id}.png")
+    img.save(tmp_path, format="PNG", optimize=True)
+    try:
+        _save_label_entry(entry_id, meta, tmp_path)
+    except OSError:
+        pass
+
+    return meta
+
 
 app = Flask(__name__)
 
@@ -594,18 +680,15 @@ def api_history_overwrite(entry_id: str):
 @app.route('/api/homebox/print', methods=['GET', 'POST'])
 def api_homebox_print():
     """
-    Homebox label webhook.  Renders a structured label (QR code + title /
-    description / additional info) and returns it as a PNG image.  Printing
-    is left to the caller (Homebox handles that side).
-
-    Works even when the printer is offline — falls back to 128 px tape height
-    if the printer is unavailable.
+    Homebox label webhook.  On first call, creates a "Homebox Template" entry
+    in the label library with {{TitleText}}, {{URL}} etc. placeholders.
+    Subsequent calls use that template (load it in the UI to customise it).
 
     Query parameters (GET) or JSON body (POST):
       URL                   — required; encoded into the QR code
-      TitleText             — optional; large bold heading
-      DescriptionText       — optional; body text (word-wrapped, first line only)
-      AdditionalInformation — optional; small info line at the bottom
+      TitleText             — optional
+      DescriptionText       — optional
+      AdditionalInformation — optional
     """
     if request.method == 'POST':
         body = request.get_json(force=True, silent=True) or {}
@@ -617,15 +700,30 @@ def api_homebox_print():
     if not url:
         return jsonify({"error": "Missing required parameter: URL"}), 400
 
-    title           = get_param('TitleText')
-    description     = get_param('DescriptionText')
-    additional_info = get_param('AdditionalInformation')
+    vars_dict = {
+        "URL":                   url,
+        "TitleText":             get_param('TitleText'),
+        "DescriptionText":       get_param('DescriptionText'),
+        "AdditionalInformation": get_param('AdditionalInformation'),
+    }
 
-    # Use printer tape height if the printer is on; fall back to 128 px.
     info = get_printer_info()
     max_h = (info.max_height_px or 128) if info.available else 128
 
-    img = render_homebox_label(url, title, description, additional_info, max_height=max_h)
+    template = _get_or_create_homebox_template(vars_dict, max_h)
+
+    img, _ = render_label_png(
+        text=_interpolate(template.get("text", ""), vars_dict),
+        url=_interpolate(template.get("url", ""), vars_dict) or None,
+        max_height=max_h,
+        font_size=template.get("font_size", 24),
+        font_key=template.get("font", DEFAULT_FONT_KEY),
+        border_style=template.get("border_style", BORDER_DEFAULT),
+        icon_key=template.get("icon", ""),
+        icon_size=template.get("icon_size"),
+        qr_size=template.get("qr_size", 96),
+        element_order=template.get("element_order"),
+    )
 
     buf = io.BytesIO()
     img.save(buf, format="PNG")
