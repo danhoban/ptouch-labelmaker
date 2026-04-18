@@ -561,8 +561,7 @@
       elements.previewPane.innerHTML = `<div class="muted" style="margin-bottom:6px">${data.width}×${data.height}px (${data.width_mm}×${data.height_mm}mm) preview (1‑bit B/W)</div>${noticeHtml}<img src="${imgUrl}" alt="preview" />`;
       const previewImg = elements.previewPane.querySelector('img');
       if (previewImg) {
-        previewImg.addEventListener('mouseenter', () => showHoverCard(previewImg, `/preview/${currentFileId}.png`, Date.now() / 1000));
-        previewImg.addEventListener('mouseleave', hideHoverCard);
+        previewImg.addEventListener('click', () => openPreviewLightbox(previewImg.src, previewImg.naturalWidth, previewImg.naturalHeight));
       }
     }
     if (elements.printBtn) elements.printBtn.disabled = (!printerAvailable) || hasError;
@@ -601,6 +600,31 @@
     if (entry.icon) return iconPathToUrl(entry.icon);
     if (entry.url)  return ICON_FALLBACK_QR;
     return ICON_FALLBACK_FONT;
+  }
+
+  // ── Preview lightbox ─────────────────────────────────────────────────────
+  function openPreviewLightbox(src, naturalW, naturalH) {
+    const dialog = document.createElement('dialog');
+    dialog.className = 'preview-lightbox';
+    const inner = document.createElement('div');
+    inner.className = 'preview-lightbox__inner';
+    const img = document.createElement('img');
+    img.src = src;
+    img.alt = 'Label preview at native resolution';
+    if (naturalW) img.style.width = naturalW + 'px';
+    if (naturalH) img.style.height = naturalH + 'px';
+    inner.appendChild(img);
+    dialog.appendChild(inner);
+    document.body.appendChild(dialog);
+    dialog.showModal();
+    function close() {
+      dialog.close();
+      dialog.remove();
+      document.removeEventListener('keydown', onKey);
+    }
+    function onKey(e) { if (e.key === 'Escape') { e.preventDefault(); close(); } }
+    inner.addEventListener('click', close);
+    document.addEventListener('keydown', onKey);
   }
 
   // Shared hover-preview card

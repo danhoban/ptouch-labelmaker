@@ -561,6 +561,41 @@
       image-rendering: pixelated;
       background: white;
       border-radius: 6px;
+      cursor: zoom-in;
+    }
+
+    dialog.preview-lightbox {
+      border: none;
+      padding: 0;
+      background: transparent;
+      max-width: 100vw;
+      max-height: 100vh;
+      overflow: auto;
+    }
+
+    dialog.preview-lightbox::backdrop {
+      background: rgba(0, 0, 0, 0.88);
+      cursor: zoom-out;
+    }
+
+    .preview-lightbox__inner {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 100vw;
+      min-height: 100vh;
+      padding: 24px;
+      box-sizing: border-box;
+      cursor: zoom-out;
+    }
+
+    .preview-lightbox img {
+      image-rendering: pixelated;
+      display: block;
+      background: white;
+      border-radius: 6px;
+      box-shadow: 0 8px 40px rgba(0, 0, 0, 0.6);
+      cursor: zoom-out;
     }
 
     body.modal-open {
