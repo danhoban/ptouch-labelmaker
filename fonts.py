@@ -86,6 +86,27 @@ class FontCatalog:
 
     @classmethod
     @functools.lru_cache(maxsize=1)
+    def _discover_font_variants(cls) -> Dict[str, List[Dict]]:
+        variants: Dict[str, List[Dict]] = {}
+        code, out, _ = run_cmd(["fc-list", "--format=%{file}\t%{family}\t%{style}\n"], timeout=6)
+        if code == 0 and out:
+            for line in out.splitlines():
+                parts = line.split("\t")
+                if len(parts) < 3:
+                    continue
+                path = parts[0].strip()
+                family = parts[1].split(",")[0].strip()
+                style = parts[2].split(",")[0].strip()
+                if not path or not os.path.exists(path):
+                    continue
+                if os.path.splitext(path)[1].lower() not in (".ttf", ".otf"):
+                    continue
+                fk = family.lower()
+                variants.setdefault(fk, []).append({"path": path, "style_lower": style.lower()})
+        return variants
+
+    @classmethod
+    @functools.lru_cache(maxsize=1)
     def _discover_system_fonts(cls) -> List[Dict[str, str]]:
         best_by_family: Dict[str, Dict] = {}
 
@@ -171,6 +192,34 @@ class FontCatalog:
                 return path
         return None
 
+    def load_variant(self, size: int, font_key: str, bold: bool = False, italic: bool = False) -> ImageFont.ImageFont:
+        if not bold and not italic:
+            return self.load_font(size, font_key)
+        entry = self._library.get(font_key) or self._library.get(self.DEFAULT_FONT_KEY)
+        family_lower = entry["label"].split()[0].lower() if entry else ""
+        all_variants = self._discover_font_variants()
+        candidates = all_variants.get(family_lower, [])
+        best_path, best_score = None, -1
+        for c in candidates:
+            s = c["style_lower"]
+            has_bold = "bold" in s
+            has_italic = "italic" in s or "oblique" in s
+            score = 0
+            if bold and has_bold:     score += 2
+            if italic and has_italic: score += 2
+            if bold and not has_bold:     score -= 3
+            if italic and not has_italic: score -= 3
+            if has_bold != bold:     score -= 1
+            if has_italic != italic: score -= 1
+            if score > best_score:
+                best_score, best_path = score, c["path"]
+        if best_path and best_score > 0:
+            try:
+                return ImageFont.truetype(best_path, size=size)
+            except OSError:
+                pass
+        return self.load_font(size, font_key)
+
     def load_font(self, size: int, font_key: str) -> ImageFont.ImageFont:
         requested_key = font_key if font_key in self._library else self.DEFAULT_FONT_KEY
         path = self.resolve_font_path(requested_key)
@@ -209,6 +258,10 @@ def resolve_font_path(font_key: str) -> Optional[str]:
 
 def load_font(size: int, font_key: str = DEFAULT_FONT_KEY) -> ImageFont.ImageFont:
     return FONT_CATALOG.load_font(size, font_key)
+
+
+def load_variant(size: int, font_key: str = DEFAULT_FONT_KEY, bold: bool = False, italic: bool = False) -> ImageFont.ImageFont:
+    return FONT_CATALOG.load_variant(size, font_key, bold=bold, italic=italic)
 
 
 def get_font_options() -> List[Dict]:

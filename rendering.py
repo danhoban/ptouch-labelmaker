@@ -6,6 +6,8 @@ Label image rendering: borders, icons, QR codes, and the two label renderers
 
 import io
 import os
+import re
+from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
 from PIL import Image, ImageDraw, ImageFont
@@ -16,7 +18,7 @@ try:
 except ImportError:
     cairosvg = None
 
-from fonts import load_font, DEFAULT_FONT_KEY, resolve_font_path
+from fonts import load_font, load_variant, DEFAULT_FONT_KEY, resolve_font_path
 
 SUPPORTS_SVG = bool(cairosvg)
 
@@ -244,6 +246,93 @@ def measure_text(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.ImageFont
     return draw.textsize(text, font=font)  # type: ignore[attr-defined]
 
 
+# ---------------------------------------------------------------------------
+# Formatted text: data structures and parser
+# ---------------------------------------------------------------------------
+
+@dataclass
+class Span:
+    text: str
+    bold: bool = False
+    italic: bool = False
+    underline: bool = False
+
+
+@dataclass
+class ParsedLine:
+    spans: List[Span]
+    size_delta: int = 0
+
+
+_SIZE_PREFIX_RE = re.compile(r'^\[([+-]\d+)\]')
+
+
+def _tokenize_spans(text: str) -> List[Span]:
+    """Parse inline formatting markers into a list of Spans."""
+    spans: List[Span] = []
+    i = 0
+    n = len(text)
+    while i < n:
+        matched = False
+        for marker, attrs in (("**", {"bold": True}), ("__", {"underline": True}), ("_", {"italic": True})):
+            ml = len(marker)
+            if text[i:i + ml] != marker:
+                continue
+            close = text.find(marker, i + ml)
+            if close > i + ml:
+                inner = text[i + ml:close]
+                if inner:
+                    spans.append(Span(text=inner, **attrs))
+                    i = close + ml
+                    matched = True
+                    break
+        if not matched:
+            # Find next marker boundary and emit plain text
+            j = i + 1
+            while j < n:
+                if text[j:j+2] in ("**", "__") or text[j] == "_":
+                    break
+                j += 1
+            chunk = text[i:j]
+            if spans and not spans[-1].bold and not spans[-1].italic and not spans[-1].underline:
+                spans[-1] = Span(text=spans[-1].text + chunk)
+            else:
+                spans.append(Span(text=chunk))
+            i = j
+    return spans or [Span(text="")]
+
+
+def parse_formatted_text(text: str) -> List[ParsedLine]:
+    parsed: List[ParsedLine] = []
+    for raw in (text or "").splitlines() or [""]:
+        line = raw.strip("\r")
+        size_delta = 0
+        m = _SIZE_PREFIX_RE.match(line)
+        if m:
+            size_delta = int(m.group(1))
+            line = line[m.end():]
+        if not line:
+            parsed.append(ParsedLine(spans=[Span(text="")], size_delta=size_delta))
+        else:
+            parsed.append(ParsedLine(spans=_tokenize_spans(line), size_delta=size_delta))
+    return parsed
+
+
+def measure_parsed_line(
+    draw: ImageDraw.ImageDraw,
+    parsed_line: "ParsedLine",
+    font_key: str,
+    font_size: int,
+) -> Tuple[int, int]:
+    total_w, max_h = 0, 0
+    for span in parsed_line.spans:
+        f = load_variant(font_size, font_key, bold=span.bold, italic=span.italic)
+        w, h = measure_text(draw, span.text or " ", f)
+        total_w += w
+        max_h = max(max_h, h)
+    return total_w, max_h
+
+
 def make_qr(data: str, box_size: int) -> Image.Image:
     qr = qrcode.QRCode(
         version=None,
@@ -319,7 +408,6 @@ def render_label_png(
     )
 
     draw_tmp = ImageDraw.Draw(Image.new("L", (1, 1)))
-    font = load_font(font_size, font_key=font_key)
 
     if max_width is not None:
         icon_w_for_wrap = icon_img.width if icon_img is not None else 0
@@ -334,36 +422,46 @@ def render_label_png(
     else:
         wrap_limit = 9999
 
-    lines = []
-    for raw_line in (text or "").splitlines() or [""]:
-        line = raw_line.strip("\r")
-        if not line:
-            lines.append("")
+    # Parse formatted text and word-wrap each line
+    parsed_lines = parse_formatted_text(text)
+    final_lines: List[ParsedLine] = []
+    for pl in parsed_lines:
+        line_size = max(8, font_size + pl.size_delta)
+        line_font = load_font(line_size, font_key=font_key)
+        plain = "".join(s.text for s in pl.spans)
+        if not plain:
+            final_lines.append(pl)
             continue
-        words = line.split(" ")
-        cur = []
+        words = plain.split(" ")
+        cur: List[str] = []
+        sub_lines: List[str] = []
         for w in words:
             test = (" ".join(cur + [w])).strip()
-            if measure_text(draw_tmp, test, font)[0] > wrap_limit:
-                lines.append(" ".join(cur))
+            if measure_text(draw_tmp, test, line_font)[0] > wrap_limit:
+                sub_lines.append(" ".join(cur))
                 cur = [w]
             else:
                 cur.append(w)
-        lines.append(" ".join(cur))
+        sub_lines.append(" ".join(cur))
+        if len(sub_lines) == 1:
+            final_lines.append(pl)
+        else:
+            for sub in sub_lines:
+                final_lines.append(ParsedLine(spans=[Span(text=sub)], size_delta=pl.size_delta))
 
-    def compute_layout(f: ImageFont.ImageFont):
+    def compute_layout(base_size: int):
         widths, heights = [], []
-        for ln in lines:
-            w, h = measure_text(draw_tmp, ln if ln else " ", f)
+        for pl in final_lines:
+            ls = max(8, base_size + pl.size_delta)
+            w, h = measure_parsed_line(draw_tmp, pl, font_key, ls)
             widths.append(w)
             heights.append(h)
         return max(widths, default=0), heights, sum(heights) + line_spacing * (len(heights) - 1)
 
-    text_width, line_heights, total_text_height = compute_layout(font)
+    text_width, line_heights, total_text_height = compute_layout(font_size)
     while total_text_height + 2 * padding > height and font_size > 8:
         font_size -= 1
-        font = load_font(font_size, font_key=font_key)
-        text_width, line_heights, total_text_height = compute_layout(font)
+        text_width, line_heights, total_text_height = compute_layout(font_size)
 
     icon_w = icon_img.width if icon_img is not None else 0
     qr_w = qr_img.width if qr_img is not None else 0
@@ -398,8 +496,19 @@ def render_label_png(
             img.paste(qr_img, (x, (height - qr_img.height) // 2))
         elif _e == 'text':
             y = (height - total_text_height) // 2
-            for _j, ln in enumerate(lines):
-                draw.text((x, y), ln, font=font, fill=0)
+            for _j, pl in enumerate(final_lines):
+                line_size = max(8, font_size + pl.size_delta)
+                x_cursor = x
+                for span in pl.spans:
+                    if not span.text:
+                        continue
+                    sf = load_variant(line_size, font_key, bold=span.bold, italic=span.italic)
+                    sw, sh = measure_text(draw, span.text, sf)
+                    draw.text((x_cursor, y), span.text, font=sf, fill=0)
+                    if span.underline:
+                        uy = y + sh + 1
+                        draw.rectangle([x_cursor, uy, x_cursor + sw - 1, uy + 1], fill=0)
+                    x_cursor += sw
                 y += line_heights[_j] + line_spacing
         x += _elem_w[_e] + (padding if _i < len(_present) - 1 else 0)
 

@@ -273,6 +273,21 @@
       min-height: 132px;
     }
 
+    .format-hint {
+      margin: 5px 0 0;
+      font-size: 11px;
+      opacity: 0.55;
+      line-height: 1.8;
+    }
+
+    .format-hint code {
+      background: rgba(255,255,255,0.08);
+      border-radius: 3px;
+      padding: 1px 5px;
+      font-family: monospace;
+      font-size: 10px;
+    }
+
     .field-inline {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
@@ -990,6 +1005,7 @@
           <div class="field">
             <label for="labelText">Label text</label>
             <textarea id="labelText" rows="5" placeholder="Type your label text…"></textarea>
+            <p class="format-hint"><code>**bold**</code> &nbsp; <code>_italic_</code> &nbsp; <code>__underline__</code> &nbsp; <code>[+4]</code>/<code>[-4]</code> at line start to resize</p>
           </div>
           <div class="field-inline">
             <div class="field">

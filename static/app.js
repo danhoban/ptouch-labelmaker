@@ -569,10 +569,15 @@
 
   // ── History ──────────────────────────────────────────────────────────────
 
+  function stripFormatting(t) {
+    return t.replace(/^\[([+-]\d+)\]/, '').replace(/\*\*(.*?)\*\*/g, '$1')
+             .replace(/__(.*?)__/g, '$1').replace(/_(.*?)_/g, '$1');
+  }
+
   function historyDisplayLabel(entry) {
     if (entry.name) return entry.name;
     const parts = [];
-    const firstLine = (entry.text || '').split('\n')[0].trim();
+    const firstLine = stripFormatting((entry.text || '').split('\n')[0].trim());
     if (firstLine) parts.push(firstLine);
     if (entry.icon) {
       const iconName = entry.icon.split('/').pop().replace(/\.[^.]+$/, '');
