@@ -29,6 +29,28 @@ import urllib.parse
 import urllib.request
 import uuid
 
+
+def _load_dotenv() -> None:
+    """Load .env from the project directory if present. Existing env vars take priority."""
+    env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env')
+    try:
+        with open(env_path) as fh:
+            for raw in fh:
+                line = raw.strip()
+                if not line or line.startswith('#') or '=' not in line:
+                    continue
+                key, _, val = line.partition('=')
+                key = key.strip()
+                val = val.strip()
+                if len(val) >= 2 and val[0] == val[-1] and val[0] in ('"', "'"):
+                    val = val[1:-1]
+                if key and key not in os.environ:
+                    os.environ[key] = val
+    except FileNotFoundError:
+        pass
+
+_load_dotenv()
+
 from flask import Flask, jsonify, render_template, request, send_file, url_for
 from PIL import Image
 
