@@ -503,11 +503,20 @@ def render_label_png(
     draw = ImageDraw.Draw(img)
     x = padding
 
+    _last_e = _present[-1] if _present else None
+
     for _i, _e in enumerate(_present):
+        # Right-align the last element (QR or icon) when a max_width is set
+        is_last = _e == _last_e
+        if is_last and max_width is not None and _e in ('qr', 'icon'):
+            draw_x = width - padding - _elem_w[_e]
+        else:
+            draw_x = x
+
         if _e == 'icon' and icon_img is not None:
-            img.paste(icon_img, (x, (height - icon_img.height) // 2))
+            img.paste(icon_img, (draw_x, (height - icon_img.height) // 2))
         elif _e == 'qr' and qr_img is not None:
-            img.paste(qr_img, (x, (height - qr_img.height) // 2))
+            img.paste(qr_img, (draw_x, (height - qr_img.height) // 2))
         elif _e == 'text':
             # Height of the tallest co-present element (QR or icon) for edge alignment
             ref_h = max(
@@ -523,7 +532,7 @@ def render_label_png(
             y = max(padding, min(y, height - total_text_height - padding))
             for _j, pl in enumerate(final_lines):
                 line_size = max(8 * _SS, font_size + pl.size_delta * _SS)
-                x_cursor = x
+                x_cursor = draw_x
                 for span in pl.spans:
                     if not span.text:
                         continue

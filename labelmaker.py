@@ -800,6 +800,12 @@ def api_homebox_print():
     collection = vars_dict.get("collection", "")
     template = _get_or_create_homebox_template(vars_dict, max_h, collection=collection)
 
+    label_width_mm = template.get("label_width_mm")
+    max_width_px = mm_to_px(label_width_mm) if label_width_mm is not None else None
+    text_align = template.get("text_align", "middle")
+    if text_align not in ("top", "middle", "bottom"):
+        text_align = "middle"
+
     img, _ = render_label_png(
         text=_interpolate(template.get("text", ""), vars_dict),
         url=_interpolate(template.get("url", ""), vars_dict) or None,
@@ -811,6 +817,8 @@ def api_homebox_print():
         icon_size=template.get("icon_size"),
         qr_size=template.get("qr_size", 96),
         element_order=template.get("element_order"),
+        max_width=max_width_px,
+        text_align=text_align,
     )
 
     buf = io.BytesIO()
