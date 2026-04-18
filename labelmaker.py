@@ -88,7 +88,7 @@ HOMEBOX_TEMPLATE_NAME = "Homebox Template"
 # Default Homebox template — placeholders are substituted at render time.
 # Users can edit this entry in the library to customise font, layout, etc.
 _HOMEBOX_DEFAULT_TEMPLATE = {
-    "text": "**{{TitleText}}**\n{{DescriptionText}}\n[-4]{{AdditionalInformation}}",
+    "text": "**{{TitleText}}**\n{{DescriptionTextOnly}}\n[-4]{{AdditionalInformation}}",
     "url": "{{URL}}",
     "font_size": 24,
     "font": DEFAULT_FONT_KEY,
@@ -708,10 +708,23 @@ def api_homebox_print():
     if not url:
         return jsonify({"error": "Missing required parameter: URL"}), 400
 
+    desc_full = get_param('DescriptionText')
+    # Homebox sends DescriptionText as "<description>\nLocation: <name>"
+    desc_lines = desc_full.split('\n')
+    desc_only = desc_lines[0].strip()
+    location_text = ''
+    for _line in desc_lines[1:]:
+        stripped = _line.strip()
+        if stripped.lower().startswith('location:'):
+            location_text = stripped[len('location:'):].strip()
+            break
+
     webhook_vars = {
         "URL":                   url,
         "TitleText":             get_param('TitleText'),
-        "DescriptionText":       get_param('DescriptionText'),
+        "DescriptionText":       desc_full,
+        "DescriptionTextOnly":   desc_only,
+        "LocationText":          location_text,
         "AdditionalInformation": get_param('AdditionalInformation'),
     }
 
