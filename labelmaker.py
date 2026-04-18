@@ -33,6 +33,7 @@ from flask import Flask, jsonify, render_template, request, send_file, url_for
 from PIL import Image
 
 from fonts import DEFAULT_FONT_KEY, FONT_LIBRARY, get_font_options, resolve_font_path
+from homebox_client import fetch_item_vars
 from printer import PT_CMD, get_printer_info, run_cmd
 from rendering import (
     BORDER_DEFAULT,
@@ -80,7 +81,7 @@ HISTORY_MAX_UNSTARRED = 15
 
 _FILE_ID_RE = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')
 _ICONIFY_NAME_RE = re.compile(r'^[a-z0-9][a-z0-9-]*$')
-_TEMPLATE_VAR_RE = re.compile(r'\{\{(\w+)\}\}')
+_TEMPLATE_VAR_RE = re.compile(r'\{\{([^}]+)\}\}')
 
 HOMEBOX_TEMPLATE_NAME = "Homebox Template"
 
@@ -689,6 +690,13 @@ def api_homebox_print():
       TitleText             — optional
       DescriptionText       — optional
       AdditionalInformation — optional
+
+    Available template variables (use as {{name}} in the template text/url):
+      Webhook:  URL, TitleText, DescriptionText, AdditionalInformation
+      API item: name, description, assetId, location, tags, serialNumber,
+                modelNumber, manufacturer, notes, purchaseFrom, purchasePrice,
+                quantity, <any custom field name e.g. {{Warranty Code}}>
+      (API fields require HOMEBOX_URL, HOMEBOX_USER, HOMEBOX_PASSWORD env vars)
     """
     if request.method == 'POST':
         body = request.get_json(force=True, silent=True) or {}
@@ -700,12 +708,17 @@ def api_homebox_print():
     if not url:
         return jsonify({"error": "Missing required parameter: URL"}), 400
 
-    vars_dict = {
+    webhook_vars = {
         "URL":                   url,
         "TitleText":             get_param('TitleText'),
         "DescriptionText":       get_param('DescriptionText'),
         "AdditionalInformation": get_param('AdditionalInformation'),
     }
+
+    # Enrich with full item data from Homebox API (if configured).
+    # Webhook fields take priority over API fields with the same name.
+    api_vars = fetch_item_vars(url)
+    vars_dict = {**api_vars, **webhook_vars}
 
     info = get_printer_info()
     max_h = (info.max_height_px or 128) if info.available else 128
