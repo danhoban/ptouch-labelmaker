@@ -98,7 +98,7 @@ class HomeboxClient:
         path = urllib.parse.urlparse(item_url).path
 
         # Extract the identifier — try /i/{id} first, then /items/{id}
-        m = re.search(r'/i/([^/?#]+)', path) or re.search(r'/items?/([^/?#]+)', path)
+        m = re.search(r'/[ia]/([^/?#]+)', path) or re.search(r'/items?/([^/?#]+)', path)
         if not m:
             log.warning("Cannot extract item identifier from URL: %s", item_url)
             return None
