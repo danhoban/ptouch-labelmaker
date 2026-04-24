@@ -10,6 +10,14 @@
   const ICON_DEFAULT_RATIO = 0.85;
   const QR_DEFAULT_RATIO = 0.85;
 
+  function pxToPct(px, height) {
+    if (!height) return 85;
+    return Math.min(100, Math.max(1, Math.round(px / height * 100)));
+  }
+  function pctToPx(pct, height) {
+    return Math.round(pct / 100 * (height || 0));
+  }
+
   let currentFileId = null;
   let printerAvailable = false;
   let maxHeight = null;
@@ -273,12 +281,12 @@
 
   function updateIconSizeDisplay() {
     if (!elements.iconSizeValue || !elements.iconSizeInput) return;
-    elements.iconSizeValue.textContent = `${elements.iconSizeInput.value} px`;
+    elements.iconSizeValue.textContent = `${elements.iconSizeInput.value}%`;
   }
 
   function updateQrSizeDisplay() {
     if (!elements.qrSizeValue || !elements.qrSizeInput) return;
-    elements.qrSizeValue.textContent = `${elements.qrSizeInput.value} px`;
+    elements.qrSizeValue.textContent = `${elements.qrSizeInput.value}%`;
   }
 
   function computeDefaultIconSize() {
@@ -299,24 +307,22 @@
 
   function updateIconSliderRange() {
     if (!elements.iconSizeInput) return;
-    const available = Math.max(0, (maxHeight || 0) - ICON_PADDING * 2);
     let locked = false;
-    if (available <= 0) {
-      elements.iconSizeInput.min = String(iconMinHeight);
-      elements.iconSizeInput.max = String(iconMinHeight);
+    if (!maxHeight || maxHeight <= 0) {
+      elements.iconSizeInput.min = '85';
+      elements.iconSizeInput.max = '85';
+      elements.iconSizeInput.value = '85';
       currentIconSize = iconMinHeight;
-      elements.iconSizeInput.value = String(currentIconSize);
       locked = true;
     }
     if (!locked) {
-      const sliderMin = Math.max(1, Math.min(iconMinHeight, available));
-      const sliderMax = Math.max(sliderMin, available);
-      elements.iconSizeInput.min = String(sliderMin);
-      elements.iconSizeInput.max = String(sliderMax);
-      if (!currentIconSize || currentIconSize < sliderMin || currentIconSize > sliderMax) {
-        currentIconSize = Math.min(Math.max(sliderMin, computeDefaultIconSize()), sliderMax);
+      const minPct = Math.max(1, Math.round(iconMinHeight / maxHeight * 100));
+      elements.iconSizeInput.min = String(minPct);
+      elements.iconSizeInput.max = '100';
+      if (!currentIconSize) {
+        currentIconSize = computeDefaultIconSize();
       }
-      elements.iconSizeInput.value = String(currentIconSize);
+      elements.iconSizeInput.value = String(pxToPct(currentIconSize, maxHeight));
     }
     elements.iconSizeInput.dataset.locked = locked ? 'true' : 'false';
     elements.iconSizeInput.disabled = locked || !currentIconPath || !printerAvailable || hasError;
@@ -325,24 +331,22 @@
 
   function updateQrSliderRange() {
     if (!elements.qrSizeInput) return;
-    const available = Math.max(0, (maxHeight || 0) - 2 * Math.max(2, Math.floor(QR_PADDING / 3)));
     let locked = false;
-    if (available <= 0) {
-      elements.qrSizeInput.min = String(qrMinSize);
-      elements.qrSizeInput.max = String(qrMinSize);
+    if (!maxHeight || maxHeight <= 0) {
+      elements.qrSizeInput.min = '85';
+      elements.qrSizeInput.max = '85';
+      elements.qrSizeInput.value = '85';
       currentQrSize = qrMinSize;
-      elements.qrSizeInput.value = String(currentQrSize);
       locked = true;
     }
     if (!locked) {
-      const sliderMin = Math.max(1, Math.min(qrMinSize, available));
-      const sliderMax = Math.max(sliderMin, available);
-      elements.qrSizeInput.min = String(sliderMin);
-      elements.qrSizeInput.max = String(sliderMax);
-      if (!currentQrSize || currentQrSize < sliderMin || currentQrSize > sliderMax) {
-        currentQrSize = Math.min(Math.max(sliderMin, computeDefaultQrSize()), sliderMax);
+      const minPct = Math.max(1, Math.round(qrMinSize / maxHeight * 100));
+      elements.qrSizeInput.min = String(minPct);
+      elements.qrSizeInput.max = '100';
+      if (!currentQrSize) {
+        currentQrSize = computeDefaultQrSize();
       }
-      elements.qrSizeInput.value = String(currentQrSize);
+      elements.qrSizeInput.value = String(pxToPct(currentQrSize, maxHeight));
     }
     elements.qrSizeInput.dataset.locked = locked ? 'true' : 'false';
     elements.qrSizeInput.disabled = locked || !printerAvailable || hasError;
@@ -380,7 +384,7 @@
 
   if (elements.iconSizeInput) {
     elements.iconSizeInput.addEventListener('input', () => {
-      currentIconSize = Number(elements.iconSizeInput.value) || currentIconSize || iconMinHeight;
+      currentIconSize = pctToPx(Number(elements.iconSizeInput.value), maxHeight) || currentIconSize || iconMinHeight;
       updateIconSizeDisplay();
       iconSizeUserSet = true;
     });
@@ -389,7 +393,7 @@
 
   if (elements.qrSizeInput) {
     elements.qrSizeInput.addEventListener('input', () => {
-      currentQrSize = Number(elements.qrSizeInput.value) || currentQrSize || qrMinSize;
+      currentQrSize = pctToPx(Number(elements.qrSizeInput.value), maxHeight) || currentQrSize || qrMinSize;
       updateQrSizeDisplay();
       qrSizeUserSet = true;
     });
@@ -491,8 +495,8 @@
     const fontKey = elements.fontSelect ? (elements.fontSelect.value || defaultFontKey) : defaultFontKey;
     const borderStyle = elements.borderSelect ? (elements.borderSelect.value || defaultBorderStyle) : defaultBorderStyle;
 
-    if (elements.iconSizeInput) currentIconSize = Number(elements.iconSizeInput.value) || currentIconSize || iconMinHeight;
-    if (elements.qrSizeInput) currentQrSize = Number(elements.qrSizeInput.value) || currentQrSize || qrMinSize;
+    if (elements.iconSizeInput) currentIconSize = pctToPx(Number(elements.iconSizeInput.value), maxHeight) || currentIconSize || iconMinHeight;
+    if (elements.qrSizeInput) currentQrSize = pctToPx(Number(elements.qrSizeInput.value), maxHeight) || currentQrSize || qrMinSize;
 
     const iconKey = elements.iconPath ? normalizeIconPath(elements.iconPath.value) : '';
 
@@ -553,20 +557,16 @@
     }
 
     if (elements.iconSizeInput) {
-      const sliderMin = Number(elements.iconSizeInput.min) || iconMinHeight;
-      const sliderMax = Number(elements.iconSizeInput.max) || sliderMin;
       const iconSizeFromServer = Number(data.icon_size) || currentIconSize;
-      currentIconSize = Math.min(Math.max(sliderMin, iconSizeFromServer), sliderMax);
-      elements.iconSizeInput.value = String(currentIconSize);
+      currentIconSize = Math.max(iconMinHeight, iconSizeFromServer);
+      elements.iconSizeInput.value = String(pxToPct(currentIconSize, maxHeight));
       updateIconSizeDisplay();
     }
 
     if (elements.qrSizeInput) {
-      const sliderMin = Number(elements.qrSizeInput.min) || qrMinSize;
-      const sliderMax = Number(elements.qrSizeInput.max) || sliderMin;
       const qrSizeFromServer = Number(data.qr_size) || currentQrSize;
-      currentQrSize = Math.min(Math.max(sliderMin, qrSizeFromServer), sliderMax);
-      elements.qrSizeInput.value = String(currentQrSize);
+      currentQrSize = Math.max(qrMinSize, qrSizeFromServer);
+      elements.qrSizeInput.value = String(pxToPct(currentQrSize, maxHeight));
       updateQrSizeDisplay();
     }
 
@@ -855,9 +855,9 @@
     if (elements.borderSelect) elements.borderSelect.value = entry.border_style || defaultBorderStyle;
     if (elements.labelWidth) elements.labelWidth.value = entry.label_width_mm != null ? String(entry.label_width_mm) : '';
     currentIconSize = entry.icon_size || iconMinHeight;
-    currentQrSize = entry.qr_size || qrMinSize;
-    if (elements.iconSizeInput) { elements.iconSizeInput.value = String(currentIconSize); updateIconSizeDisplay(); }
-    if (elements.qrSizeInput) { elements.qrSizeInput.value = String(currentQrSize); updateQrSizeDisplay(); }
+    currentQrSize = entry.qr_size || Math.round(0.85 * (maxHeight || 128));
+    if (elements.iconSizeInput) { elements.iconSizeInput.value = String(pxToPct(currentIconSize, maxHeight)); updateIconSizeDisplay(); }
+    if (elements.qrSizeInput) { elements.qrSizeInput.value = String(pxToPct(currentQrSize, maxHeight)); updateQrSizeDisplay(); }
     updateIconUi(entry.icon || '', { url: entry.icon ? iconPathToUrl(entry.icon) : null });
     setElementOrder(entry.element_order);
     setTextAlign(entry.text_align || 'middle');

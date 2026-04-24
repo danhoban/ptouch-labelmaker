@@ -349,25 +349,23 @@ def make_qr(data: str, box_size: int) -> Image.Image:
 
 
 def clamp_icon_height(requested: Optional[int], max_height: int, padding: int) -> int:
-    available = max_height - 2 * padding
-    if available <= 0:
+    if max_height <= 0:
         return 0
-    if available <= ICON_MIN_HEIGHT:
-        return available
+    if max_height <= ICON_MIN_HEIGHT:
+        return max_height
     if not requested or requested <= 0:
         return compute_default_icon_height(max_height, padding)
-    return min(available, max(ICON_MIN_HEIGHT, requested))
+    return min(max_height, max(ICON_MIN_HEIGHT, requested))
 
 
 def clamp_qr_size(requested: Optional[int], max_height: int, padding: int) -> int:
-    available = max_height - 2 * max(2, padding // 3)
-    if available <= 0:
+    if max_height <= 0:
         return QR_MIN_SIZE
-    if available <= QR_MIN_SIZE:
-        return available
+    if max_height <= QR_MIN_SIZE:
+        return max_height
     if not requested or requested <= 0:
         return compute_default_qr_size(max_height, padding)
-    return min(available, max(QR_MIN_SIZE, requested))
+    return min(max_height, max(QR_MIN_SIZE, requested))
 
 
 # ---------------------------------------------------------------------------

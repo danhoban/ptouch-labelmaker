@@ -1043,8 +1043,8 @@
           <div class="field">
             <label for="qrSize">QR size</label>
             <div class="size-control">
-              <input type="range" id="qrSize" min="{{ qr_min_size }}" max="{{ qr_min_size }}" value="{{ qr_min_size }}">
-              <span id="qrSizeValue">{{ qr_min_size }} px</span>
+              <input type="range" id="qrSize" min="1" max="100" value="85">
+              <span id="qrSizeValue">85%</span>
             </div>
           </div>
         </div>
@@ -1069,8 +1069,8 @@
             </div>
             <label for="iconSize" style="margin-top:6px">Icon size</label>
             <div class="size-control">
-              <input type="range" id="iconSize" min="{{ icon_min_height }}" max="{{ icon_min_height }}" value="{{ icon_min_height }}">
-              <span id="iconSizeValue">{{ icon_min_height }} px</span>
+              <input type="range" id="iconSize" min="1" max="100" value="85">
+              <span id="iconSizeValue">85%</span>
             </div>
           </div>
 
