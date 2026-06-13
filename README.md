@@ -81,6 +81,8 @@ The **Library** section lets you save the current label configuration under a na
 
 ## Homebox integration
 
+Requires **Homebox v0.26 or later**.
+
 The app exposes a webhook endpoint that [Homebox](https://homebox.software/) can call to generate a label image for any asset.
 
 ```
@@ -103,6 +105,43 @@ http://<host>:5000/api/homebox/print?URL={url}&TitleText={name}&DescriptionText=
 The endpoint returns a PNG image directly. Homebox handles sending it to the printer. The endpoint works even when the printer is off — it falls back to a 128 px tape height if the printer is unavailable.
 
 Also accepts `POST` with a JSON body using the same field names.
+
+### API enrichment (optional)
+
+When configured with a Homebox API key, the webhook fetches full item data and makes every field available as a `{{placeholder}}` in label templates. Set these environment variables (or add them to `.env`):
+
+```
+HOMEBOX_URL=http://your-homebox-instance:7745
+HOMEBOX_API_KEY=hb_your_api_key_here
+```
+
+Generate an API key from your Homebox profile page (Profile → API Keys). Keys use the `hb_` prefix.
+
+Available template variables when API enrichment is enabled:
+
+| Variable | Source |
+|---|---|
+| `{{name}}` | Item name |
+| `{{description}}` | Item description |
+| `{{assetId}}` | Asset ID |
+| `{{location}}` | Location name |
+| `{{tags}}` | Comma-separated tag names |
+| `{{collection}}` | Derived from a `Label-*` tag (e.g. tag `Label-Electronics` → `Electronics`) |
+| `{{serialNumber}}` | Serial number |
+| `{{modelNumber}}` | Model number |
+| `{{manufacturer}}` | Manufacturer |
+| `{{notes}}` | Notes |
+| `{{purchaseFrom}}` | Purchase source |
+| `{{purchasePrice}}` | Purchase price |
+| `{{purchaseDate}}` | Purchase date (YYYY-MM-DD) |
+| `{{soldDate}}` | Sale date (YYYY-MM-DD) |
+| `{{soldPrice}}` | Sale price |
+| `{{warrantyExpires}}` | Warranty expiry date (YYYY-MM-DD) |
+| `{{warrantyDetails}}` | Warranty details |
+| `{{quantity}}` | Quantity |
+| `{{<custom field name>}}` | Any custom field defined on the item |
+
+Webhook parameters (`TitleText`, `URL`, etc.) take priority over API fields with the same name.
 
 ### Font requirements for Homebox labels
 

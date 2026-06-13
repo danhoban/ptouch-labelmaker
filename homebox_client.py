@@ -3,9 +3,8 @@
 Homebox API client for fetching item details to supplement webhook template data.
 
 Configure via environment variables:
-  HOMEBOX_URL      — Base URL of your Homebox instance (e.g. http://192.168.1.10:7745)
-  HOMEBOX_USER     — Login email/username
-  HOMEBOX_PASSWORD — Password
+  HOMEBOX_URL     — Base URL of your Homebox instance (e.g. http://192.168.1.10:7745)
+  HOMEBOX_API_KEY — API key generated from your Homebox profile page (hb_... prefix)
 
 When configured, the Homebox label endpoint enriches template variables with
 full item data fetched from the API, making fields like {{location}}, {{serialNumber}},
@@ -28,60 +27,29 @@ _UUID_RE = re.compile(
 
 
 class HomeboxClient:
-    def __init__(self, base_url: str, username: str, password: str):
+    def __init__(self, base_url: str, api_key: str):
         self.base = base_url.rstrip('/')
-        self._username = username
-        self._password = password
-        self._token: str | None = None
+        self._token = api_key if api_key.startswith("Bearer ") else f"Bearer {api_key}"
 
     # ------------------------------------------------------------------
     # Internal HTTP helpers
     # ------------------------------------------------------------------
 
-    def _login(self) -> None:
-        payload = urllib.parse.urlencode({
-            "username": self._username,
-            "password": self._password,
-        }).encode()
+    def _get(self, path: str):
+        """Authenticated GET. Returns parsed JSON or None."""
         req = urllib.request.Request(
-            f"{self.base}/api/v1/users/login",
-            data=payload,
-            headers={"Content-Type": "application/x-www-form-urlencoded"},
-            method="POST",
+            f"{self.base}/api/v1{path}",
+            headers={"Authorization": self._token},
         )
         try:
             with urllib.request.urlopen(req, timeout=10) as resp:
-                data = json.loads(resp.read())
-                raw = data.get("token", "")
-                self._token = raw if raw.startswith("Bearer ") else f"Bearer {raw}"
+                return json.loads(resp.read())
+        except urllib.error.HTTPError as exc:
+            log.warning("Homebox GET %s → HTTP %s", path, exc.code)
+            return None
         except Exception as exc:
-            log.warning("Homebox login failed: %s", exc)
-            self._token = None
-
-    def _get(self, path: str):
-        """Authenticated GET; re-authenticates once on 401. Returns parsed JSON or None."""
-        for attempt in range(2):
-            if not self._token:
-                self._login()
-            if not self._token:
-                return None
-            req = urllib.request.Request(
-                f"{self.base}/api/v1{path}",
-                headers={"Authorization": self._token},
-            )
-            try:
-                with urllib.request.urlopen(req, timeout=10) as resp:
-                    return json.loads(resp.read())
-            except urllib.error.HTTPError as exc:
-                if exc.code == 401 and attempt == 0:
-                    self._token = None
-                    continue
-                log.warning("Homebox GET %s → HTTP %s", path, exc.code)
-                return None
-            except Exception as exc:
-                log.warning("Homebox GET %s failed: %s", path, exc)
-                return None
-        return None
+            log.warning("Homebox GET %s failed: %s", path, exc)
+            return None
 
     # ------------------------------------------------------------------
     # Item lookup
@@ -105,17 +73,17 @@ class HomeboxClient:
 
         identifier = m.group(1)
 
-        # UUID → direct item lookup
+        # UUID → direct entity lookup
         if _UUID_RE.match(identifier):
-            return self._get(f"/items/{identifier}")
+            return self._get(f"/entities/{identifier}")
 
-        # Asset ID → search with '#' prefix (Homebox v0.25 syntax)
+        # Asset ID → search with '#' prefix
         encoded = urllib.parse.quote(f"#{identifier}")
-        result = self._get(f"/items?q={encoded}&pageSize=1")
+        result = self._get(f"/entities?q={encoded}&pageSize=1")
         if result:
             items = result.get("items", [])
             if items:
-                return self._get(f"/items/{items[0]['id']}")
+                return self._get(f"/entities/{items[0]['id']}")
 
         log.warning("No Homebox item found for identifier: %s", identifier)
         return None
@@ -132,7 +100,7 @@ class HomeboxClient:
         Available keys (use as {{key}} in templates):
           name, description, assetId, serialNumber, modelNumber, manufacturer,
           notes, purchaseFrom, purchasePrice, soldPrice, quantity,
-          warrantyExpires, purchaseTime, soldTime,
+          warrantyExpires, purchaseDate, soldDate,
           location, tags, collection (from Label-* tag),
           <any custom field name>
         """
@@ -150,7 +118,7 @@ class HomeboxClient:
                 vars_dict[key] = str(val)
 
         # Date fields — skip Go zero-value sentinel dates (year "0001")
-        for key in ("warrantyExpires", "purchaseTime", "soldTime"):
+        for key in ("warrantyExpires", "purchaseDate", "soldDate"):
             val = (item.get(key) or "").strip()
             if val and not val.startswith("0001-"):
                 vars_dict[key] = val[:10]  # keep YYYY-MM-DD only
@@ -196,14 +164,13 @@ def get_client() -> HomeboxClient | None:
     global _client
     if _client is not None:
         return _client
-    url  = os.environ.get("HOMEBOX_URL", "").strip()
-    user = os.environ.get("HOMEBOX_USER", "").strip()
-    pwd  = os.environ.get("HOMEBOX_PASSWORD", "").strip()
-    if url and user and pwd:
-        _client = HomeboxClient(url, user, pwd)
+    url     = os.environ.get("HOMEBOX_URL", "").strip()
+    api_key = os.environ.get("HOMEBOX_API_KEY", "").strip()
+    if url and api_key:
+        _client = HomeboxClient(url, api_key)
         log.info("Homebox API client configured for %s", url)
     else:
-        missing = [k for k, v in [("HOMEBOX_URL", url), ("HOMEBOX_USER", user), ("HOMEBOX_PASSWORD", pwd)] if not v]
+        missing = [k for k, v in [("HOMEBOX_URL", url), ("HOMEBOX_API_KEY", api_key)] if not v]
         log.info("Homebox API not configured (missing: %s)", ", ".join(missing))
     return _client
 

@@ -757,7 +757,7 @@ def api_homebox_print():
                 serialNumber, modelNumber, manufacturer, notes,
                 purchaseFrom, purchasePrice, quantity,
                 <any custom field name e.g. {{Warranty Code}}>
-      (API fields require HOMEBOX_URL, HOMEBOX_USER, HOMEBOX_PASSWORD env vars)
+      (API fields require HOMEBOX_URL, HOMEBOX_API_KEY env vars)
     """
     if request.method == 'POST':
         body = request.get_json(force=True, silent=True) or {}
